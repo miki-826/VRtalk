@@ -142,7 +142,7 @@ namespace QuestAI
                 { steps.Add(Step(MotionAction.throw_ball, toy == "" ? "ボール" : toy, dir, 0, toward)); said = "投げる"; return steps; }
                 if (Has(c, "蹴", "けとば", "キック", "シュート") || kind.HasValue && Has(c, "けっ", "ける", "けて"))
                 { steps.Add(Step(MotionAction.kick, toy == "" ? "ボール" : toy, dir, 0, toward)); said = "蹴る"; return steps; }
-                if (Has(c, "転が", "ころが"))
+                if (Has(c, "転が", "ころが") && !Has(c, "前転", "寝転", "ねころ", "ごろごろ", "ゴロゴロ", "転がって", "ころがって") || Has(c, "転がして", "ころがして"))
                 { steps.Add(Step(MotionAction.roll, toy == "" ? "ボール" : toy, dir, 0, toward)); said = "転がす"; return steps; }
                 if (Has(c, "弾ま", "はずま", "バウンド", "ドリブル", "まりつき", "つい") && kind == CompanionPlayground.ToyKind.Ball)
                 { steps.Add(Step(MotionAction.bounce, toy, MotionDirection.none, count > 0 ? count : 3)); said = "弾ませる"; return steps; }
@@ -157,6 +157,14 @@ namespace QuestAI
             { steps.Add(Step(MotionAction.line_up, toy == "" ? "積み木" : toy)); said = "並べる"; return steps; }
             if (spinnerWord && Has(c, "回し", "まわし", "回転", "回す", "まわす"))
             { steps.Add(Step(MotionAction.spin_toy, toy)); said = "こまを回す"; return steps; }
+            string onto = Mentioned(c, context, includeToys: false);
+            if (onto != null && Has(c, "の上", "にのせ", "に乗せ", "にのっけ", "に置いて", "におい", "に置こう", "に置く") && (kind.HasValue || Has(c, "それ", "これ", "あれ") || lastToy != null))
+            { steps.Add(Step(MotionAction.put_on, toy == "" ? "ボール" : toy, MotionDirection.to_object, 0, onto)); said = onto + "の上に置く"; return steps; }
+            if (Has(c, "握手", "あくしゅ", "ハイタッチ", "タッチして", "触って", "さわって", "触れて", "ふれて", "ノック", "なでて", "撫で", "つついて"))
+            {
+                string touched = kind.HasValue ? toy : Mentioned(c, context) ?? (Has(c, Me) || Has(c, "握手", "あくしゅ", "ハイタッチ") ? "user" : "");
+                if (touched != "") { steps.Add(Step(MotionAction.touch, touched)); said = "触る"; return steps; }
+            }
             if (Has(c, "持って", "もって", "拾", "ひろ", "つかん", "掴", "取って", "とって", "抱え", "かかえ", "持ち上げ", "もちあげ", "つまん") && (kind.HasValue || Has(c, "それ", "これ", "あれ")))
             { steps.Add(Step(MotionAction.pick_up, toy)); said = "持つ"; return steps; }
             if (Has(c, "置いて", "おいて", "下ろして", "おろして", "離して", "はなして", "置こう"))
@@ -223,6 +231,23 @@ namespace QuestAI
             if (Has(c, "床に座", "床にすわ", "体育座", "あぐら", "地面に座")) return MotionPreset.sit_floor;
             if (Has(c, "考え", "かんがえ", "悩", "なやん")) return MotionPreset.think;
             if (Has(c, "応援", "おうえん", "喜ん", "よろこん", "やったー", "ガッツ", "はしゃ")) return MotionPreset.cheer;
+            if (Has(c, "パンチ", "殴", "なぐ", "ボクシング")) return MotionPreset.punch;
+            if (Has(c, "前転", "でんぐり", "ごろごろ", "ゴロゴロ", "転がって", "ころがって")) return MotionPreset.forward_roll;
+            if (Has(c, "押して", "押す", "おして", "押そう")) return MotionPreset.push;
+            if (Has(c, "腕を組", "腕組", "うでぐみ", "うでをく")) return MotionPreset.fold_arms;
+            if (Has(c, "電話", "でんわ")) return MotionPreset.phone;
+            if (Has(c, "ゾンビ")) return MotionPreset.zombie;
+            if (Has(c, "泳", "およ", "クロール")) return MotionPreset.swim;
+            if (Has(c, "修理", "直して", "なおして", "なおそう", "直そう")) return MotionPreset.fix;
+            if (Has(c, "食べ", "たべ", "飲ん", "のんで", "飲み", "飲も", "もぐもぐ")) return MotionPreset.eat;
+            if (Has(c, "収穫", "しゅうかく", "野菜を採", "引っこ抜", "ひっこぬ")) return MotionPreset.harvest;
+            if (Has(c, "種", "植え", "うえて")) return MotionPreset.plant;
+            if (Has(c, "水やり", "水をあげ", "水を撒", "水をま")) return MotionPreset.water;
+            if (Has(c, "薪割", "まきわり", "木を切", "斧")) return MotionPreset.chop;
+            if (Has(c, "死んだふり", "死んだ振り", "倒れて", "たおれて", "気絶", "きぜつ", "やられたふり")) return MotionPreset.die;
+            if (Has(c, "驚", "おどろ", "びっくり")) return MotionPreset.surprised;
+            if (Has(c, "吹っ飛", "ふっとば", "ふっとん", "やられて")) return MotionPreset.knockback;
+            if (Has(c, "身振り", "みぶり", "ジェスチャー", "手振り")) return MotionPreset.talk;
             return null;
         }
         static Gesture? GestureIn(string c)

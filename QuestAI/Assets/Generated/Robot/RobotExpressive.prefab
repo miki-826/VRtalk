@@ -141,19 +141,33 @@ MonoBehaviour:
   animator: {fileID: 9216291852869774155}
   idle: {fileID: -2490753452179567278, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
   walk: {fileID: 7665131459739693286, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  run: {fileID: -7647767192877738747, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  carry: {fileID: 0}
   gestures:
+  - name: Dance
+    clip: {fileID: -4746579845412563721, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: Death
+    clip: {fileID: -4746380211842627776, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: Jump
+    clip: {fileID: 8016117995556713153, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: No
+    clip: {fileID: 4203162683634984400, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: Punch
+    clip: {fileID: -6810371955151399809, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: Running
+    clip: {fileID: -7647767192877738747, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: Sitting
+    clip: {fileID: 1047748378676049457, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: Standing
+    clip: {fileID: 6299585734112131690, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: ThumbsUp
+    clip: {fileID: -6402669321700550134, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
+  - name: WalkJump
+    clip: {fileID: -1089573422527396308, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
   - name: Wave
     clip: {fileID: -841127657883503139, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
   - name: Yes
     clip: {fileID: 3085827095450492783, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
-  - name: No
-    clip: {fileID: 4203162683634984400, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
-  - name: Jump
-    clip: {fileID: 8016117995556713153, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
-  - name: ThumbsUp
-    clip: {fileID: -6402669321700550134, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
-  - name: Dance
-    clip: {fileID: -4746579845412563721, guid: d75372c1be701d54fb7bc67f6db3ff20, type: 3}
 --- !u!114 &3243509633186357515
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -221,6 +235,8 @@ MonoBehaviour:
   user: {fileID: 0}
   voice: {fileID: 0}
   lookStrength: 1
+  Holding: 0
+  holdWidth: 0.15
 --- !u!1001 &3354140715992061658
 PrefabInstance:
   m_ObjectHideFlags: 0

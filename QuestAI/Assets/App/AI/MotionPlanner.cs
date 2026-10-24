@@ -10,9 +10,9 @@ using UnityEngine;
 
 namespace QuestAI
 {
-    public enum MotionAction { walk_to, approach_user, move, turn, look_at, sit, crouch, stand, point, gesture, motion, follow_user, wait, stop, spawn_toy, roll, kick, throw_ball, bounce, fetch, pick_up, put_down, stack, knock_down, line_up, spin_toy, put_away, look_closely }
+    public enum MotionAction { walk_to, approach_user, move, turn, look_at, sit, crouch, stand, point, gesture, motion, follow_user, wait, stop, spawn_toy, roll, kick, throw_ball, bounce, fetch, pick_up, put_down, stack, knock_down, line_up, spin_toy, put_away, look_closely, put_on, touch }
     public enum MotionDirection { none, forward, back, left, right, to_user, away_from_user, to_object }
-    public enum MotionPreset { custom, jump, bow, banzai, clap, dance, stretch, spin, shake_head, nod, wave_both, sit_floor, think, cheer }
+    public enum MotionPreset { custom, jump, bow, banzai, clap, dance, stretch, spin, shake_head, nod, wave_both, sit_floor, think, cheer, punch, forward_roll, push, fold_arms, phone, zombie, swim, fix, eat, harvest, plant, water, chop, die, surprised, knockback, talk, interact }
     // One keyframe of a whole-body motion, in degrees relative to a relaxed standing pose (see the planner instructions).
     [Serializable] public class MotionKey
     {
@@ -43,12 +43,16 @@ namespace QuestAI
     {
         public MotionStep[] steps = Array.Empty<MotionStep>();
         public string summary = "";
+        // False when the AI wants to see the result and continue with more steps (the agent loop).
+        public bool done = true;
         public bool Empty => steps == null || steps.Length == 0;
     }
     public class MotionRequest
     {
         public string text, characterName, surroundings, pose;
         public IReadOnlyList<string> places = Array.Empty<string>(), toys = Array.Empty<string>(), toyStates = Array.Empty<string>(), visible = Array.Empty<string>();
+        // Earlier turns of the agent loop: what was done and what happened.
+        public IReadOnlyList<string> history = Array.Empty<string>();
     }
     public interface IMotionPlanner { Task<MotionPlan> PlanAsync(MotionRequest request, CancellationToken token); }
     public interface IVisionProvider { Task<string> DescribeAsync(byte[] jpeg, string question, CancellationToken token); }
@@ -56,7 +60,7 @@ namespace QuestAI
     public static class MotionPlans
     {
         public const int MaxSteps = 10, MaxKeys = 16;
-        public static readonly string[] ToyKinds = { "ボール", "積み木", "回転おもちゃ" };
+        public static readonly string[] ToyKinds = { "ボール", "積み木", "回転おもちゃ", "クッション", "本", "箱", "ぬいぐるみ" };
         static readonly JsonSerializerSettings Json = new JsonSerializerSettings { Converters = { new StringEnumConverter() } };
         public static MotionPlan Parse(string json, MotionRequest request) => Validate(JsonConvert.DeserializeObject<MotionPlan>(json, Json), request);
         // Never trusts the model: unknown ids are dropped, amounts and angles are clamped, keyframes are ordered.
@@ -104,7 +108,7 @@ namespace QuestAI
                     ["keys"] = new { type = "array", items = key }
                 }
             };
-            return new { type = "object", additionalProperties = false, required = new[] { "steps", "summary" }, properties = new { steps = new { type = "array", items = step }, summary = new { type = "string" } } };
+            return new { type = "object", additionalProperties = false, required = new[] { "steps", "summary", "done" }, properties = new { steps = new { type = "array", items = step }, summary = new { type = "string" }, done = new { type = "boolean" } } };
         }
         public const string Instructions =
 @"You turn a Japanese request from the user into body actions for a small 3D character standing in a VR room. Return steps=[] when the utterance is ordinary chat that does not ask the character to move, act, play or look at something. Otherwise return up to 10 steps that run in order, doing exactly and completely what was asked; split compound requests into several steps (e.g. 「ボールを出してこっちに転がして」 = spawn_toy ボール, then roll toward the user).
@@ -114,42 +118,78 @@ Actions:
 - turn: direction left/right (amount degrees, default 90), back, to_user or to_object.
 - look_at: look at target for amount seconds. sit: sit on target seat (no target: sit on the floor). crouch (amount seconds), stand, point at target.
 - gesture: one gesture value, amount repetitions.
-- motion: whole-body movement. Use a preset when it fits: jump, bow, banzai, clap, dance, stretch, spin (turn around on the spot), shake_head, nod, wave_both, sit_floor, think, cheer; amount = repetitions. For any other movement use motion=custom and write keys: 2-12 keyframes with time in seconds (ascending, starting at 0), angles in degrees relative to relaxed standing: head_pitch (+looks down), head_yaw (+right), head_roll (+tilts right), chest_pitch (+bends forward), chest_yaw (+twists right), chest_roll (+leans right), left/right_arm_up (0 hanging, 90 forward and level, 180 straight up), left/right_arm_out (0 at the side, 90 level to the side), left/right_elbow (0 straight, 140 fully bent), left/right_leg (+lifts the leg forward), left/right_knee (+bends), hips_drop (0 standing, 1 deep squat), lift (metres the whole body rises, 0.3 = a hop). Left and right are the character's own. End near all zeros unless the pose should stay.
+- motion: whole-body movement. Use a preset when it fits (they are real motion-captured animations where available): jump, bow, banzai, clap, dance, stretch, spin (turn around on the spot), shake_head, nod, wave_both, sit_floor, think, cheer, punch, forward_roll, push, fold_arms, phone (talk on a phone), zombie, swim, fix (kneel and repair), eat (eat or drink), harvest, plant (plant seeds), water (water plants), chop (chop wood), die (play dead, then get up), surprised, knockback (get knocked back), talk (talk with gestures), interact (reach out and use something); amount = repetitions. For any other movement use motion=custom and write keys: 2-12 keyframes with time in seconds (ascending, starting at 0), angles in degrees relative to relaxed standing: head_pitch (+looks down), head_yaw (+right), head_roll (+tilts right), chest_pitch (+bends forward), chest_yaw (+twists right), chest_roll (+leans right), left/right_arm_up (0 hanging, 90 forward and level, 180 straight up), left/right_arm_out (0 at the side, 90 level to the side), left/right_elbow (0 straight, 140 fully bent), left/right_leg (+lifts the leg forward), left/right_knee (+bends), hips_drop (0 standing, 1 deep squat), lift (metres the whole body rises, 0.3 = a hop). Left and right are the character's own. End near all zeros unless the pose should stay.
 - follow_user: follow the user around for amount seconds (default 20). wait: pause amount seconds. stop: stop everything (alone, when told to stop).
 - Toys: spawn_toy (put a new toy near the character), roll (roll the ball; direction/toward give where to, to_user by default), kick (kick the ball hard), throw_ball (toss it in an arc), bounce (bounce it on the spot), fetch (bring target toy to the user), pick_up, put_down (put the carried toy down), stack (build a tower with the blocks, amount blocks), knock_down (knock the blocks over), line_up (line the blocks up), spin_toy (spin the top), put_away (tidy all toys away).
 - look_closely: really look with its eyes and tell what it sees (asked what it sees, 「これ見て」, 「何が見える」, to check something).
+- put_on: put the target toy/prop on top of the furniture named in toward. touch: walk to target and touch it with a hand.
+Toys and props: ボール, 積み木, 回転おもちゃ, クッション, 本, 箱, ぬいぐるみ — all can be picked up, carried, thrown, fetched and put on furniture; they move with real physics.
+You act in a loop. history lists what earlier turns did and what actually happened (things can fall, miss or be blocked). Return at most 4 steps per turn; set done=false when you need to see the result and continue (e.g. 「全部」, 「〜するまで」, retrying something that failed), done=true when the request is fulfilled or impossible. Never repeat a step that already succeeded.
 If a toy that the request needs is missing, spawn it first. pace: slow/normal/hurry for walking. emotion: the feeling to show. Unused fields: target """", toward """", direction none, amount 0, gesture none, motion custom, keys []. summary: one short Japanese sentence in the character's voice saying what it will do, or why it cannot.";
     }
 
     // Instruction → motion plan with OpenAI structured output, and descriptions of what the character's eye camera sees.
     public sealed class OpenAIMotionPlanner : IMotionPlanner, IVisionProvider
     {
-        readonly ApiTransport transport; readonly AppSettings settings;
-        const string Url = "https://api.openai.com/v1/responses";
-        public OpenAIMotionPlanner(ApiTransport transport, AppSettings settings) { this.transport = transport; this.settings = settings; }
+        readonly OpenAIStructured api;
+        public OpenAIMotionPlanner(OpenAIStructured api) { this.api = api; }
         public async Task<MotionPlan> PlanAsync(MotionRequest request, CancellationToken token)
         {
-            var input = JsonConvert.SerializeObject(new { request = request.text, character = request.characterName, pose = request.pose, places = request.places, toys = request.toyStates, visible = request.visible, room = request.surroundings });
-            var result = await transport.JsonAsync("OpenAI", Url, new
-            {
-                model = settings.llmModel, store = false, max_output_tokens = 2000, instructions = MotionPlans.Instructions, input,
-                text = new { format = new { type = "json_schema", name = "motion_plan", strict = true, schema = MotionPlans.Schema() } }
-            }, token);
-            try { return MotionPlans.Parse(OpenAIProvider.ResponseText(result), request); }
+            var input = JsonConvert.SerializeObject(new { request = request.text, character = request.characterName, pose = request.pose, places = request.places, toys = request.toyStates, visible = request.visible, room = request.surroundings, history = request.history });
+            string text = await api.TextAsync(MotionPlans.Instructions, input, "motion_plan", MotionPlans.Schema(), 2000, token);
+            try { return MotionPlans.Parse(text, request); }
             catch (JsonException) { throw new InvalidOperationException("動きの指示を解析できませんでした。"); }
         }
         public async Task<string> DescribeAsync(byte[] jpeg, string question, CancellationToken token)
         {
             var content = new object[] { new { type = "input_text", text = "ユーザーの言葉: " + question }, new { type = "input_image", image_url = "data:image/jpeg;base64," + Convert.ToBase64String(jpeg), detail = "low" } };
-            var result = await transport.JsonAsync("OpenAI", Url, new
-            {
-                model = settings.llmModel, store = false, max_output_tokens = 300,
-                instructions = "画像は、VRの部屋にいるキャラクターの目に今映っている光景（CGの部屋で、現実の映像ではない）です。キャラクター自身の視点で、見えている物・人・動き・色を日本語2文以内で具体的に述べてください。写っていない物を推測しないこと。",
-                input = new object[] { new { role = "user", content } }
-            }, token);
-            string text = OpenAIProvider.ResponseText(result);
+            string text = await api.TextAsync("画像は、VRの部屋にいるキャラクターの目に今映っている光景（CGの部屋で、現実の映像ではない）です。キャラクター自身の視点で、見えている物・人・動き・色を日本語2文以内で具体的に述べてください。写っていない物を推測しないこと。", content, null, null, 300, token);
             if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("見えたものを説明できませんでした。");
             return text.Length > 300 ? text.Substring(0, 300) : text;
+        }
+    }
+
+    // Structured JSON from OpenAI. Tries the Responses API and, when this key may not use it (401/403/404),
+    // switches to Chat Completions with the same schema and remembers that for the rest of the session.
+    public sealed class OpenAIStructured
+    {
+        public const string Responses = "https://api.openai.com/v1/responses", Chat = "https://api.openai.com/v1/chat/completions";
+        readonly Func<string, object, CancellationToken, Task<JObject>> post; readonly AppSettings settings;
+        public bool UseChat { get; private set; }
+        public OpenAIStructured(ApiTransport transport, AppSettings settings) : this((url, body, token) => transport.JsonAsync("OpenAI", url, body, token), settings) { }
+        public OpenAIStructured(Func<string, object, CancellationToken, Task<JObject>> post, AppSettings settings) { this.post = post; this.settings = settings; }
+        // content: a string, or Responses-style parts (input_text / input_image). schema null = free text.
+        public async Task<string> TextAsync(string instructions, object content, string name, object schema, int maxTokens, CancellationToken token)
+        {
+            if (!UseChat)
+            {
+                try
+                {
+                    object input = content is string ? content : new object[] { new { role = "user", content } };
+                    var body = schema == null
+                        ? (object)new { model = settings.llmModel, store = false, max_output_tokens = maxTokens, instructions, input }
+                        : new { model = settings.llmModel, store = false, max_output_tokens = maxTokens, instructions, input, text = new { format = new { type = "json_schema", name, strict = true, schema } } };
+                    return OpenAIProvider.ResponseText(await post(Responses, body, token));
+                }
+                catch (ProviderException e) when (e.Status == 401 || e.Status == 403 || e.Status == 404) { UseChat = true; }
+            }
+            var user = content is string text ? (object)text : ChatParts(content);
+            var messages = new object[] { new { role = "system", content = instructions }, new { role = "user", content = user } };
+            var chat = schema == null
+                ? (object)new { model = settings.llmModel, max_completion_tokens = maxTokens, messages }
+                : new { model = settings.llmModel, max_completion_tokens = maxTokens, messages, response_format = new { type = "json_schema", json_schema = new { name, strict = true, schema } } };
+            var result = await post(Chat, chat, token);
+            return ((string)result["choices"]?[0]?["message"]?["content"] ?? "").Trim();
+        }
+        static object[] ChatParts(object content)
+        {
+            var parts = new List<object>();
+            foreach (var part in JArray.FromObject(content))
+            {
+                if ((string)part["type"] == "input_image") parts.Add(new { type = "image_url", image_url = new { url = (string)part["image_url"], detail = (string)part["detail"] ?? "low" } });
+                else parts.Add(new { type = "text", text = (string)part["text"] ?? "" });
+            }
+            return parts.ToArray();
         }
     }
 }

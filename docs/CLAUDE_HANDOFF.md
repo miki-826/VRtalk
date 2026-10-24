@@ -11,13 +11,13 @@
 - 配置は現在の部屋セッションだけ。永続保存なし。手指の把持や物理シミュレーションではなく演出。音声だけでおもちゃ遊びを開始する機能は未追加。
 - EditMode53/53、PlayMode13/13成功。Windowsビルドと実行ファイルのsmoke成功。APKビルド・v2署名検証も成功（最新SHA256はVALIDATION.md参照）。
 - APIキーを使う実会話・声の試聴・Quest実機は未検証。MVPの実機完成条件は満たしたとは判定しない。
-- 2026-10-24 端末内の動き解析・物理演算まで含むAPK/Windows zipでRelease v1.0.0の添付を差し替え済み。ソースはmainへマージ済み（PR #1）。ユーザーのOpenAIキーはResponses APIが403（AI動作計画・記憶抽出・画像説明は不可、端末内解析で動作）。
+- 2026-10-24 夜: CC0アニメ81種（Quaternius、`AnimationLibraryBuilder`）・IK・AIループ・小物まで含むAPK/Windows zipでRelease v1.0.0の添付を差し替え済み。ソースはmainへマージ済み（PR #1）。ユーザーのOpenAIキーはResponses APIが403（AI動作計画・記憶抽出・画像説明は不可、端末内解析で動作）。
 - 操作手順: PLAYGROUND.md / DESKTOP.md。プレビュー: artifacts/previews/Playground-ball.png。
 
 
 ## 配布: GitHub（2026-10-24）
 
-非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 2D81929B…E57B）と `VRtalk-Windows.zip`（1098E91F…41FF）。GitHub側のdigest一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
+非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 2BD5B35D…EF60）と `VRtalk-Windows.zip`（33FCD342…3C31）。GitHub側のdigest一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
 
 ## 最新: 2026-10-24 Jev行動の細分化・ユーザーの動き — 完了
 

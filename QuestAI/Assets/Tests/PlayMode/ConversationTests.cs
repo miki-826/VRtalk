@@ -140,6 +140,20 @@ namespace QuestAI.Tests
             brain.performer.Stop();live.Emit("session.output_transcript.delta","はい");brain.Disconnect();live=new Live();brain.Connect();
             Assert.True(brain.SendText("もっと変なポーズして"));yield return null;yield return null;Assert.That(planner.calls,Is.EqualTo(1),"not retried after 403");
         }
+        sealed class Looping : IMotionPlanner
+        {
+            public readonly List<MotionRequest> requests=new List<MotionRequest>();
+            public Task<MotionPlan> PlanAsync(MotionRequest r,CancellationToken t){requests.Add(r);bool first=requests.Count==1;return Task.FromResult(new MotionPlan{summary=first?"一回目":"二回目",done=!first,steps=new[]{new MotionStep{action=MotionAction.wait,amount=.3f}}});}
+        }
+        [UnityTest] public IEnumerator AgentLoopSeesWhatHappenedAndContinues()
+        {
+            var planner=new Looping();brain.planner=planner;brain.Connect();
+            Assert.True(brain.SendText("変なポーズして"));
+            for(float end=Time.realtimeSinceStartup+5;planner.requests.Count<2&&Time.realtimeSinceStartup<end;)yield return null;
+            Assert.That(planner.requests.Count,Is.EqualTo(2));Assert.That(planner.requests[1].history.Count,Is.EqualTo(1));StringAssert.Contains("一回目",planner.requests[1].history[0]);
+            for(float end=Time.realtimeSinceStartup+3;brain.performer.Busy&&Time.realtimeSinceStartup<end;)yield return null;
+            yield return new WaitForSeconds(.5f);Assert.False(brain.performer.Busy);Assert.That(planner.requests.Count,Is.EqualTo(2),"done ends the loop");
+        }
         [UnityTest] public IEnumerator RobotVoiceFollowsTheSetting()
         {
             var player=brain.GetComponent<PcmStreamPlayer>();yield return null;Assert.False(player.Robot,"calm keeps its own voice by default");

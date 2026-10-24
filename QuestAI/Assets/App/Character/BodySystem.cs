@@ -3,6 +3,8 @@ using UnityEngine;
 
 namespace QuestAI
 {
+    // Runs after the toys have moved what the hands hold, so the hands can reach for it in the same frame.
+    [DefaultExecutionOrder(50)]
     public class BodySystem : MonoBehaviour
     {
         public CharacterRigBinding rig;
@@ -38,6 +40,7 @@ namespace QuestAI
             if(rig.animator&&!clips)rig.animator.enabled=false;
             foreach(var bone in new[]{rig.head,rig.chest,rig.leftArm,rig.rightArm,rig.leftForearm,rig.rightForearm,rig.leftLeg,rig.rightLeg,rig.leftKnee,rig.rightKnee}) if(bone && !rest.ContainsKey(bone)) rest.Add(bone,bone.localRotation);
             nextBlink=Time.time+Random.Range(2f,5f);
+            leftHand=Hand(rig.leftForearm,HumanBodyBones.LeftHand);rightHand=Hand(rig.rightForearm,HumanBodyBones.RightHand);
             var mouthObject=new GameObject("Spatial voice");mouthObject.transform.SetParent(rig.head?rig.head:transform,false);
             voice=mouthObject.AddComponent<AudioSource>();voice.playOnAwake=false;voice.spatialBlend=1;voice.minDistance=.5f;voice.maxDistance=12;voice.rolloffMode=AudioRolloffMode.Logarithmic;voice.spatialize=true;
             mouthObject.AddComponent<MetaXRAudioSource>();
@@ -62,9 +65,19 @@ namespace QuestAI
         public void SetMotion(MotionKey key)=>motion=key;
         // Arms held forward around something carried, whenever no other motion is playing.
         public bool Holding;
-        static readonly MotionKey HoldKey=new MotionKey{left_arm_up=65,right_arm_up=65,left_arm_out=-12,right_arm_out=-12,left_elbow=35,right_elbow=35};
+        public static readonly MotionKey HoldKey=new MotionKey{left_arm_up=65,right_arm_up=65,left_arm_out=-12,right_arm_out=-12,left_elbow=35,right_elbow=35};
         public void ClearMotion()=>motion=null;
-        public void SetPose(Pose pose,Vector3? target){CurrentPose=pose;poseTarget=target;}
+        public void SetPose(Pose pose,Vector3? target)
+        {
+            CurrentPose=pose;poseTarget=target;
+            // Models with a crouch animation use it instead of the procedural fold.
+            if(clips){if(pose==Pose.crouch)clips.Hold("Crouch_Idle_Loop");else clips.Release();}
+        }
+        // Where each hand should reach (null: wherever the animation puts it). Eased in and out.
+        public Vector3? leftHandTarget,rightHandTarget;
+        // Something held in both hands: its centre and half its width.
+        public Vector3? holdCenter;public float holdWidth=.15f;
+        Transform leftHand,rightHand;float leftReach,rightReach;Vector3 leftLast,rightLast;
         public void Play(SpeechAudio data,float volume)
         {
             StopSpeech(); var clip=AudioClip.Create("Generated speech",data.samples.Length,1,data.sampleRate,false);clip.SetData(data.samples,0);voice.clip=clip;voice.volume=volume;voice.Play();
@@ -84,7 +97,7 @@ namespace QuestAI
             if(!rig)return;
             if(!locomotion)locomotion=GetComponent<CharacterLocomotion>();
             float t=Time.time, age=t-gestureTime, envelope=Mathf.Sin(Mathf.Clamp01(age/2.4f)*Mathf.PI), walk=locomotion?locomotion.Speed01:0;
-            if(clips){clips.SetSpeed(walk);clips.SetPace(locomotion?locomotion.PaceScale:1);}
+            if(clips){clips.SetSpeed(walk);clips.SetPace(locomotion?locomotion.PaceScale:1);clips.SetGroundSpeed(locomotion?locomotion.GroundSpeed:0);clips.SetHolding(Holding);}
             poseWeight=Mathf.MoveTowards(poseWeight,CurrentPose==Pose.stand||walk>.3f?0:1,Time.deltaTime/.45f);
             // Undo last frame's crouch offset unless a clip already rewrote the hips this frame.
             if(rig.hips){if(!clips)rig.hips.localPosition=hipsRest;else if(rig.hips.localPosition==hipsWritten)rig.hips.localPosition=hipsBase;hipsBase=rig.hips.localPosition;}
@@ -136,7 +149,7 @@ namespace QuestAI
                     if(!proceduralGesture||decision.gesture!=Gesture.shrug)Swing(rig.leftArm,-s*.7f);
                 }
             }
-            ApplyPose();ApplyMotion();
+            ApplyPose();ApplyMotion();Reach();
             if(t>=nextBlink){blinkStarted=t;nextBlink=t+Random.Range(2.2f,5.5f);}
             float blinkAge=t-blinkStarted,blink=blinkAge<.18f?Mathf.Sin(blinkAge/.18f*Mathf.PI)*100:0;
             float volume=0;if(IsSpeaking){voice.GetOutputData(audio,0);foreach(var sample in audio)volume+=sample*sample;volume=Mathf.Clamp01(Mathf.Sqrt(volume/audio.Length)*9);}
@@ -160,6 +173,7 @@ namespace QuestAI
                 case Pose.crouch:
                     // Drop the hips, fold the legs and lean in so the head comes close to what is being studied.
                     // Clip models (the robot) have short, mostly hidden legs: a small dip and lean reads better than folded legs.
+                    if(clips&&clips.Posing)break;
                     if(rig.hips){rig.hips.position-=Vector3.up*HipHeight*(clips?.25f:.45f)*w;hipsWritten=rig.hips.localPosition;}
                     if(!clips){Swing(rig.leftLeg,-70*w);Swing(rig.rightLeg,-70*w);Swing(rig.leftKnee,110*w);Swing(rig.rightKnee,110*w);}
                     Swing(rig.chest,(clips?10:25)*w);break;
@@ -184,6 +198,42 @@ namespace QuestAI
             Leg(rig.leftLeg,rig.leftKnee,m.left_leg,m.left_knee);Leg(rig.rightLeg,rig.rightKnee,m.right_leg,m.right_knee);
         }
         static void Turn(Transform bone,Quaternion rotation){if(bone)bone.rotation=rotation*bone.rotation;}
+        Transform Hand(Transform forearm,HumanBodyBones bone)
+        {
+            if(rig.animator&&rig.animator.isHuman){var hand=rig.animator.GetBoneTransform(bone);if(hand)return hand;}
+            return forearm&&forearm.childCount>0?forearm.GetChild(0):null;
+        }
+        // Hands go where they are sent: to a held object's sides, a block being placed, a ball being pushed.
+        void Reach()
+        {
+            Vector3? left=leftHandTarget,right=rightHandTarget;
+            if(holdCenter.HasValue&&Holding){var side=transform.right*holdWidth;left=left??holdCenter.Value-side;right=right??holdCenter.Value+side;}
+            float step=Time.deltaTime/.25f;
+            leftReach=Mathf.MoveTowards(leftReach,left.HasValue?1:0,step);rightReach=Mathf.MoveTowards(rightReach,right.HasValue?1:0,step);
+            if(left.HasValue)leftLast=left.Value;if(right.HasValue)rightLast=right.Value;
+            // Elbows bend down, back and outward like a person's.
+            if(leftReach>0&&leftHand)SolveTwoBone(rig.leftArm,rig.leftForearm,leftHand,leftLast,rig.leftForearm.position-transform.up*.3f-transform.right*.25f-transform.forward*.1f,Mathf.SmoothStep(0,1,leftReach));
+            if(rightReach>0&&rightHand)SolveTwoBone(rig.rightArm,rig.rightForearm,rightHand,rightLast,rig.rightForearm.position-transform.up*.3f+transform.right*.25f-transform.forward*.1f,Mathf.SmoothStep(0,1,rightReach));
+        }
+        // Analytic two-bone IK (upper arm, forearm, hand): bends the elbow by the law of cosines, then swings the chain at the target.
+        public static void SolveTwoBone(Transform a,Transform b,Transform c,Vector3 target,Vector3 hint,float weight)
+        {
+            if(!a||!b||!c||weight<=0)return;
+            Quaternion aStart=a.rotation,bStart=b.rotation;
+            Vector3 pa=a.position,pb=b.position,pc=c.position;
+            float lab=(pb-pa).magnitude,lcb=(pc-pb).magnitude;if(lab<1e-4f||lcb<1e-4f)return;
+            float lat=Mathf.Clamp((target-pa).magnitude,.01f,(lab+lcb)*.999f);
+            float Angle(Vector3 x,Vector3 y)=>Mathf.Acos(Mathf.Clamp(Vector3.Dot(x.normalized,y.normalized),-1,1));
+            float acAb0=Angle(pc-pa,pb-pa),baBc0=Angle(pa-pb,pc-pb);
+            float acAb1=Mathf.Acos(Mathf.Clamp((lcb*lcb-lab*lab-lat*lat)/(-2*lab*lat),-1,1)),baBc1=Mathf.Acos(Mathf.Clamp((lat*lat-lab*lab-lcb*lcb)/(-2*lab*lcb),-1,1));
+            // The bend plane is the arm's current one; the hint decides it only when the arm is straight.
+            Vector3 axis0=Vector3.Cross(pc-pa,pb-pa);if(axis0.sqrMagnitude<1e-6f)axis0=Vector3.Cross(pc-pa,hint-pa);if(axis0.sqrMagnitude<1e-8f)axis0=Vector3.up;axis0.Normalize();
+            b.rotation=Quaternion.AngleAxis((baBc1-baBc0)*Mathf.Rad2Deg,axis0)*b.rotation;
+            a.rotation=Quaternion.AngleAxis((acAb1-acAb0)*Mathf.Rad2Deg,axis0)*a.rotation;
+            // With the elbow bent to the right reach, swing the whole arm so the hand lands on the target.
+            pc=c.position;var swing=Quaternion.FromToRotation(pc-pa,target-pa);a.rotation=swing*a.rotation;
+            if(weight<1){a.rotation=Quaternion.Slerp(aStart,a.rotation,weight);b.rotation=Quaternion.Slerp(bStart,b.rotation,weight);}
+        }
         // Out raises the arm sideways (about the forward axis, mirrored per side); up swings it forward and overhead.
         void Arm(Transform upper,Transform lower,float up,float outward,float elbow,float side)
         {
