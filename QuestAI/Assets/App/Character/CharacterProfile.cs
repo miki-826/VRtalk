@@ -6,6 +6,13 @@ namespace QuestAI
     {
         public string id, displayName, voice = "marin";
         [TextArea] public string personality;
+        [TextArea] public string speechStyle;
+        public string SpeechInstructions => personality + "\n話し方: " + (string.IsNullOrWhiteSpace(speechStyle) ? DefaultSpeechStyle(id) : speechStyle);
+        public static string DefaultSpeechStyle(string characterId) => characterId == "robot"
+            ? "小さな好奇心旺盛なロボットとして、少し機械的で抑揚をおさえた、区切りのはっきりした日本語。一定のテンポで話し、ときどき語尾を「〜デス」「〜マス」と固めに言う。発見には温かな驚きを込める。電子音のまねは連発せず、短い言葉で話す。"
+            : characterId == "bright"
+            ? "丸く小さな白いキャラクターに合う、軽く明るい柔らかな声。やや高めの響きで、楽しそうな抑揚をつける。早口や叫び声を避け、自然な日本語で一度に1〜3文話す。"
+            : "丸く小さな白いキャラクターに合う、柔らかく温かな声。軽い響きと穏やかな抑揚で、少しゆっくり、親しい相手に話す自然な日本語。ささやきすぎず、一度に1〜3文話す。";
         public GameObject prefab;
         public Emotion defaultEmotion;
         public float personalSpace = .7f, initiative = .3f;

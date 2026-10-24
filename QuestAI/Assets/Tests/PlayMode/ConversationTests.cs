@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -25,6 +26,8 @@ namespace QuestAI.Tests
             public Task AudioAsync(byte[] b,CancellationToken t){calls.Add("audio");return Task.CompletedTask;}
             public Task ContextAsync(string c,string d,CancellationToken t)=>Task.CompletedTask;
             public Task AnswerAsync(string c,string d,CancellationToken t)=>Task.CompletedTask;
+            public readonly List<string> texts=new List<string>();
+            public Task TextAsync(string text,CancellationToken t){calls.Add("text");texts.Add(text);return Task.CompletedTask;}
             public Task CloseAsync(){Dispose();return Task.CompletedTask;}
             public void Dispose(){Ready=false;calls.Add("close");}
             public void Emit(string type,string delta)=>Event?.Invoke(new JObject{["type"]=type,["delta"]=delta,["start_ms"]=123,["end_ms"]=456});
@@ -43,6 +46,12 @@ namespace QuestAI.Tests
             public Task<string> ReplyAsync(DialogueContext c,CancellationToken t)=>Task.FromResult("unused");
             public Task<BehaviorDecision> DecideAsync(DialogueContext c,CancellationToken t)=>Task.FromResult(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.nod});
             public Task<IReadOnlyList<MemoryRecord>> ExtractAsync(MessageRecord s,CancellationToken t)=>Task.FromResult<IReadOnlyList<MemoryRecord>>(new[]{new MemoryRecord{characterId=s.characterId,sourceMessageId=s.id,content=s.text}});
+        }
+        sealed class Planner : IMotionPlanner,IVisionProvider
+        {
+            public readonly List<MotionRequest> requests=new List<MotionRequest>();
+            public Task<MotionPlan> PlanAsync(MotionRequest r,CancellationToken t){requests.Add(r);return Task.FromResult(new MotionPlan{summary="うなずくね",steps=new[]{new MotionStep{action=MotionAction.gesture,gesture=Gesture.nod,amount=2}}});}
+            public Task<string> DescribeAsync(byte[] jpeg,string q,CancellationToken t)=>Task.FromResult("赤いボールが見える");
         }
         GameObject avatar,head;CharacterBrain brain;Capture capture;Live live;LocalRepository repo;
         [SetUp] public void Setup()
@@ -105,6 +114,46 @@ namespace QuestAI.Tests
             live.wait=new TaskCompletionSource<bool>();brain.BeginRecording();brain.EndRecording();
             live.wait.SetResult(true);yield return null;
             Assert.True(brain.Connected);Assert.False(capture.Recording);Assert.That(capture.starts,Is.Zero);
+        }
+        [UnityTest] public IEnumerator InstructionBecomesMotionPlanAndStopEndsIt()
+        {
+            var planner=new Planner();brain.planner=planner;brain.Connect();
+            // Understood on the device: runs at once without asking the AI planner.
+            Assert.True(brain.SendText("ジャンプして"));yield return null;yield return null;
+            Assert.That(planner.requests,Is.Empty);Assert.True(brain.performer.Busy);Assert.That(brain.performer.Last.steps[0].motion,Is.EqualTo(MotionPreset.jump));
+            brain.performer.Stop();live.Emit("session.output_transcript.delta","はい");brain.Disconnect();live=new Live();brain.Connect();
+            // Not understood locally: the AI planner decides.
+            Assert.True(brain.SendText("変なポーズして"));yield return null;yield return null;
+            Assert.That(planner.requests.Select(r=>r.text),Is.EqualTo(new[]{"変なポーズして"}));Assert.That(planner.requests[0].characterName,Is.EqualTo(brain.profile.displayName));
+            Assert.True(brain.performer.Busy);Assert.That(brain.performer.Request,Is.EqualTo("変なポーズして"));
+            Assert.False(brain.ApplyDecision(new BehaviorDecision{emotion=Emotion.sad,movement=Movement.wander}),"Jev cannot move the body during an instruction");Assert.That(brain.State.emotion,Is.EqualTo(Emotion.sad));
+            brain.settings.motionPlanning=false;yield return new WaitForSeconds(5.2f);Assert.False(brain.performer.Busy);
+            brain.performer.Run(brain.performer.Last,"again");Assert.True(brain.performer.Busy);brain.Suspend();Assert.False(brain.performer.Busy);
+        }
+        sealed class Forbidden : IMotionPlanner{public int calls;public Task<MotionPlan> PlanAsync(MotionRequest r,CancellationToken t){calls++;throw new ProviderException("OpenAI",403);}}
+        [UnityTest] public IEnumerator ForbiddenPlannerFallsBackToTheDeviceParser()
+        {
+            var planner=new Forbidden();brain.planner=planner;brain.Connect();
+            Assert.True(brain.SendText("右手を上げて、変なポーズして"));yield return null;yield return null;
+            Assert.That(planner.calls,Is.EqualTo(1));Assert.True(brain.PlannerBlocked);
+            Assert.True(brain.performer.Busy,"the understood part still runs");Assert.That(brain.performer.Last.steps[0].motion,Is.EqualTo(MotionPreset.custom));
+            brain.performer.Stop();live.Emit("session.output_transcript.delta","はい");brain.Disconnect();live=new Live();brain.Connect();
+            Assert.True(brain.SendText("もっと変なポーズして"));yield return null;yield return null;Assert.That(planner.calls,Is.EqualTo(1),"not retried after 403");
+        }
+        [UnityTest] public IEnumerator RobotVoiceFollowsTheSetting()
+        {
+            var player=brain.GetComponent<PcmStreamPlayer>();yield return null;Assert.False(player.Robot,"calm keeps its own voice by default");
+            brain.settings.robotVoice=1;yield return null;Assert.True(player.Robot);brain.settings.robotVoice=2;yield return null;Assert.False(player.Robot);
+        }
+        [UnityTest] public IEnumerator TypedTextConnectsSendsAndIsSavedBeforeReply()
+        {
+            live.wait=new TaskCompletionSource<bool>();Assert.True(brain.SendText("  声が出せないの  "));Assert.That(live.texts,Is.Empty);
+            live.wait.SetResult(true);yield return null;
+            Assert.That(live.texts,Is.EqualTo(new[]{"声が出せないの"}));Assert.False(capture.Recording);Assert.That(brain.Phase,Is.EqualTo(ConversationPhase.Thinking));
+            Assert.False(brain.SendText("二重送信"));Assert.That(live.texts.Count,Is.EqualTo(1));
+            live.Emit("session.output_transcript.delta","わかった、文字でどうぞ");brain.Disconnect();
+            var recent=repo.Recent("calm",10);Assert.That(recent.Count,Is.EqualTo(2));Assert.That(recent[0].text,Is.EqualTo("声が出せないの"));Assert.That(recent[0].role,Is.EqualTo("user"));Assert.That(recent[1].role,Is.EqualTo("assistant"));
+            Assert.False(brain.SendText("   "));live=new Live();Assert.That(brain.SendText(new string('あ',300)),Is.True);yield return null;Assert.That(live.texts.Last().Length,Is.EqualTo(CharacterBrain.MaxTypedLength));
         }
     }
 }

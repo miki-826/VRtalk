@@ -75,6 +75,8 @@ namespace QuestAI
         // A deliberate point (PC key) keeps its own ray so a later per-frame update cannot replace it before it is read.
         public void Pointer(Ray? ray, bool deliberatePoint) { hand = ray; if (deliberatePoint && ray.HasValue) deliberate = ray; }
         public void Wave() => waveRequested = true;
+        // Where the tracked hand/controller is (on PC the mouse ray starts at the head, which vision ignores).
+        public Vector3? Hand => hand?.origin;
         void Update()
         {
             if (!head) return;

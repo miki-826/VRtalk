@@ -15,6 +15,7 @@ namespace QuestAI
         Task AudioAsync(byte[] pcm,CancellationToken token);
         Task ContextAsync(string content,string delegationId,CancellationToken token);
         Task AnswerAsync(string content,string delegationId,CancellationToken token);
+        Task TextAsync(string text,CancellationToken token);
         Task CloseAsync();
     }
     public interface IAudioCapture

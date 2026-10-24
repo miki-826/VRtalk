@@ -55,6 +55,9 @@ namespace QuestAI
         // The user's latest body movement (UserBodyTracker) and what they point at, if anything.
         public string userGesture, userPointingAt;
         public bool userCrouching;
+        // What the character's eyes currently see (CharacterVision) and the latest visual event, if any.
+        public string[] visible;
+        public string sawEvent;
     }
     [Serializable] public class AppSettings
     {
@@ -65,6 +68,10 @@ namespace QuestAI
         public SubtitleMode subtitles = SubtitleMode.Minimal;
         public float voiceVolume = .9f, lookStrength = 1, behaviorInterval = 12, uiScale = 1;
         public bool memoryEnabled = true, behaviorEnabled = true, autonomousMovement = true;
+        // Instructions become body motion plans (OpenAI); sight reacts to what is in view; images of the view may be described by OpenAI.
+        public bool motionPlanning = true, vision = true, visionImages = true;
+        // Robotic voice effect: 0 = robot character only, 1 = every character, 2 = off.
+        public int robotVoice;
     }
     [Serializable] public class MessageRecord
     {
