@@ -11,13 +11,13 @@
 - 配置は現在の部屋セッションだけ。永続保存なし。手指の把持や物理シミュレーションではなく演出。音声だけでおもちゃ遊びを開始する機能は未追加。
 - EditMode53/53、PlayMode13/13成功。Windowsビルドと実行ファイルのsmoke成功。APKビルド・v2署名検証も成功（最新SHA256はVALIDATION.md参照）。
 - APIキーを使う実会話・声の試聴・Quest実機は未検証。MVPの実機完成条件は満たしたとは判定しない。
-- 2026-10-24 文字入力・Jev状態表示を含むAPK/Windows zipでRelease v1.0.0の添付を差し替え済み。ソースのcommit/pushは未実施。
+- 2026-10-24 指示どおりの動き・視覚・ロボット声まで含むAPK/Windows zipでRelease v1.0.0の添付を差し替え済み。ソースはブランチ feature/motion-vision-text-input にpush、PR #1（main未マージ）。
 - 操作手順: PLAYGROUND.md / DESKTOP.md。プレビュー: artifacts/previews/Playground-ball.png。
 
 
 ## 配布: GitHub（2026-10-24）
 
-非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 CD4402BC…9772A）と `VRtalk-Windows.zip`（3A323F51…33CD）。GitHub側のdigest一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
+非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 8615307A…E3C4）と `VRtalk-Windows.zip`（56E579C1…EC83A）。GitHub側のdigest一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
 
 ## 最新: 2026-10-24 Jev行動の細分化・ユーザーの動き — 完了
 

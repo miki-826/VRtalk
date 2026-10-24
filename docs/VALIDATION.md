@@ -4,6 +4,7 @@
 
 - EditMode **69/69成功**: `artifacts/EditMode-20261024-171156.xml`。新規MotionTests（計画の解析と不正値除去、スキーマ、停止語、プリセット、ロボット声、視野と遮蔽、ボール物理）。
 - PlayMode **18/18成功**: `artifacts/PlayMode-20261024-171241.xml`。新規: ボールを出してユーザーへ転がす→視野内外の判定→積み木5段→崩す→持ってくる→目のカメラ画像、腕上げ・ジャンプ・一回転・右90°・前進・追従と停止、指示文から計画→実行中はJevが体を動かさない、ロボット声の設定反映。画像 `artifacts/previews/Motion-arms-up.png`、`Play-blocks-stacked.png`、`Vision-eye.jpg`。
+- APK 167,706,371 bytes、SHA256 `8615307AD2D2C941CA8BFEF3BFD1BE99A5187CEB6863757DA83E56C26FDEE3C4`。Windowsビルド・`--desktop-smoke` 成功。Release v1.0.0の添付を差し替え済み（zip SHA256 `56E579C1…EC83A`）。
 
 ## 最新: 2026-10-24 文字入力・Jev状態表示
 
