@@ -60,6 +60,9 @@ namespace QuestAI
         MotionKey motion;
         public MotionKey Motion => motion;
         public void SetMotion(MotionKey key)=>motion=key;
+        // Arms held forward around something carried, whenever no other motion is playing.
+        public bool Holding;
+        static readonly MotionKey HoldKey=new MotionKey{left_arm_up=65,right_arm_up=65,left_arm_out=-12,right_arm_out=-12,left_elbow=35,right_elbow=35};
         public void ClearMotion()=>motion=null;
         public void SetPose(Pose pose,Vector3? target){CurrentPose=pose;poseTarget=target;}
         public void Play(SpeechAudio data,float volume)
@@ -173,7 +176,7 @@ namespace QuestAI
         // Rotations are about the character's own axes, so one keyframe means the same thing on every rig.
         void ApplyMotion()
         {
-            if(motion==null)return;var m=motion;Vector3 r=transform.right,u=transform.up,f=transform.forward;
+            var m=motion??(Holding?HoldKey:null);if(m==null)return;Vector3 r=transform.right,u=transform.up,f=transform.forward;
             if(rig.hips&&(m.lift!=0||m.hips_drop!=0)){rig.hips.position+=u*(m.lift-HipHeight*.5f*m.hips_drop);hipsWritten=rig.hips.localPosition;}
             Turn(rig.chest,Quaternion.AngleAxis(m.chest_yaw,u)*Quaternion.AngleAxis(m.chest_pitch,r)*Quaternion.AngleAxis(-m.chest_roll,f));
             Turn(rig.head,Quaternion.AngleAxis(m.head_yaw,u)*Quaternion.AngleAxis(m.head_pitch,r)*Quaternion.AngleAxis(-m.head_roll,f));

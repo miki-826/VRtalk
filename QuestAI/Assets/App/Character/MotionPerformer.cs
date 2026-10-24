@@ -158,7 +158,7 @@ namespace QuestAI
                     {
                         var top = NeedToy(step.target, CompanionPlayground.ToyKind.Spinner); if (top == null) break;
                         yield return WalkToToy(top, Self, step.pace, v); if (v != version) yield break;
-                        brain.HoldPose(BodySystem.Pose.crouch, top.Center, 3); yield return Hold(.5f, v); Toys.Spin(top, 900); yield return Hold(1.5f, v); break;
+                        brain.HoldPose(BodySystem.Pose.crouch, top.Center, 3); yield return Hold(.5f, v); Toys.Spin(top, 30); yield return Hold(1.5f, v); break;
                     }
                 case MotionAction.put_away: if (Toys) Toys.ClearToys(); yield return Hold(.3f, v); break;
                 case MotionAction.look_closely:
@@ -261,41 +261,65 @@ namespace QuestAI
             if (v == version) Body.ClearMotion();
         }
 
+        // Where a thrown or rolled thing should end up.
+        Vector3 Destination(MotionStep step, Vector3 from, float fallback)
+        {
+            if (!string.IsNullOrEmpty(step.toward) && Point(step.toward, out var goal, out _)) return goal;
+            if (step.direction == MotionDirection.to_user || step.direction == MotionDirection.none) return Flat(User) + Flat(from - User).normalized * .45f + Vector3.up * World.floor.max.y;
+            return from + Direction(step, from) * fallback;
+        }
         IEnumerator PlayBall(MotionStep step, int v)
         {
+            if (step.action == MotionAction.throw_ball) { yield return Throw(step, v); yield break; }
             var ball = NeedToy(step.target, CompanionPlayground.ToyKind.Ball); if (ball == null || ball.kind != CompanionPlayground.ToyKind.Ball) { if (ball != null) Fail(ball.item.id + "はボールではありません。"); yield break; }
             if (ball.carried) Toys.PutDown(ball, Self + Flat(brain.transform.forward).normalized * .5f);
             if (step.action == MotionAction.bounce)
             {
                 yield return WalkToToy(ball, Self, step.pace, v); if (v != version) yield break;
+                brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 1.2f); yield return Keys(MotionLibrary.PickUp, 1, v); if (v != version) yield break;
                 Look(ball.Center); yield return Toys.Bounce(ball, Mathf.Clamp(Mathf.RoundToInt(step.amount), 2, 8)); Report?.Invoke(ball.item.id + "を弾ませました。"); yield break;
             }
-            Vector3 aim = Direction(step, ball.Center);
+            var target = Destination(step, ball.Center, 2.5f); Vector3 aim = Flat(target - ball.Center).normalized;
             // Stand on the far side of the ball from where it should go.
             yield return WalkToToy(ball, Flat(ball.Center) - aim * .6f + Vector3.up * Self.y, step.pace, v); if (v != version) yield break;
-            aim = Direction(step, ball.Center);
-            float distance = step.direction == MotionDirection.to_user || (step.direction == MotionDirection.none && string.IsNullOrEmpty(step.toward)) ? Vector3.Distance(Flat(ball.Center), Flat(User)) - .4f : 2.5f;
-            if (!string.IsNullOrEmpty(step.toward) && Point(step.toward, out var goal, out _)) distance = Vector3.Distance(Flat(ball.Center), Flat(goal)) - .3f;
+            aim = Flat(target - ball.Center).normalized; float distance = Vector3.Distance(Flat(ball.Center), Flat(target));
             bool pushed = false;
-            switch (step.action)
+            if (step.action == MotionAction.kick)
+                yield return Keys(MotionLibrary.Kick, 1, v, t => { if (!pushed && t >= .42f) { pushed = true; Toys.Push(ball, aim * Mathf.Max(2.5f, CompanionPlayground.SpeedFor(distance) * 1.5f) + Vector3.up * 1.2f); } });
+            else
             {
-                case MotionAction.kick:
-                    yield return Keys(MotionLibrary.Kick, 1, v, t => { if (!pushed && t >= .42f) { pushed = true; Toys.Push(ball, aim * Mathf.Max(3, CompanionPlayground.SpeedFor(distance) * 1.6f)); } });
-                    break;
-                case MotionAction.throw_ball:
-                    Toys.PickUp(ball);
-                    yield return Keys(MotionLibrary.Throw, 1, v, t => { if (!pushed && t >= .55f) { pushed = true; Toys.PutDown(ball, Self + aim * .45f); ball.root.transform.position += Vector3.up * .55f; Toys.Push(ball, aim * Mathf.Clamp(distance * .6f, 1, 3) + Vector3.up * 2.2f); } });
-                    break;
-                default:
-                    brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 2.5f); yield return Hold(.5f, v);
-                    yield return Keys(MotionLibrary.Roll, 1, v, t => { if (!pushed && t >= .35f) { pushed = true; Toys.Push(ball, aim * Mathf.Clamp(CompanionPlayground.SpeedFor(distance), .7f, 3.5f)); } });
-                    break;
+                brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 2.5f); yield return Hold(.5f, v);
+                yield return Keys(MotionLibrary.Roll, 1, v, t => { if (!pushed && t >= .35f) { pushed = true; Toys.Push(ball, aim * Mathf.Clamp(CompanionPlayground.SpeedFor(distance), .7f, 4)); } });
             }
             if (!pushed && v == version) Toys.Push(ball, aim * 1.5f);
             brain.EndPose();
-            // Watch it go.
-            for (float end = Time.time + 3; Time.time < end && v == version && (ball.rolling || ball.root.transform.position.y > World.floor.max.y + .01f);) { Look(ball.Center); yield return null; }
-            Report?.Invoke(ball.item.id + "を" + (step.action == MotionAction.kick ? "蹴りました" : step.action == MotionAction.throw_ball ? "投げました" : "転がしました") + "。");
+            yield return Watch(ball, 4, v);
+            Report?.Invoke(ball.item.id + "を" + (step.action == MotionAction.kick ? "蹴りました" : "転がしました") + "。");
+        }
+        IEnumerator Watch(CompanionPlayground.Toy toy, float seconds, int v)
+        {
+            yield return null;
+            for (float end = Time.time + seconds; Time.time < end && v == version && toy.Moving;) { Look(toy.Center); yield return null; }
+        }
+        // Picks the toy up (one block of a set), winds up and throws it so it lands on the target.
+        IEnumerator Throw(MotionStep step, int v)
+        {
+            var toy = NeedToy(step.target, CompanionPlayground.ToyKind.Ball); if (toy == null) yield break;
+            List<Rigidbody> grip;
+            if (toy.carried) grip = toy.bodies.Where(b => b.isKinematic).ToList();
+            else
+            {
+                yield return WalkToToy(toy, Self, step.pace, v); if (v != version) yield break;
+                brain.HoldPose(BodySystem.Pose.crouch, toy.Center, 1); yield return Keys(MotionLibrary.PickUp, 1, v, null); if (v != version) yield break;
+                grip = Toys.PickUp(toy, single: true); brain.EndPose();
+            }
+            var target = Destination(step, Self, 3);
+            Face(target); yield return Hold(.45f, v); if (v != version) yield break;
+            float distance = Vector3.Distance(Flat(Self), Flat(target)), flight = Mathf.Clamp(distance / 3.2f, .6f, 1.1f); bool thrown = false;
+            yield return Keys(MotionLibrary.Throw, 1, v, t => { if (!thrown && t >= .55f) { thrown = true; Toys.Throw(grip, target, flight); } });
+            if (!thrown && v == version) Toys.Throw(grip, target, flight);
+            yield return Watch(toy, 4, v);
+            Report?.Invoke(toy.item.id + "を投げました。");
         }
         IEnumerator Fetch(MotionStep step, int v)
         {

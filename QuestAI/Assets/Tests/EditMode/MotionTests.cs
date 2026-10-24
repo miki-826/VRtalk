@@ -76,20 +76,15 @@ namespace QuestAI.Tests
             Assert.False(CharacterVision.CanSee(eye, Vector3.forward, new Vector3(0, 1, 4), 140, 7, wall), "hidden behind the wall");
             Assert.True(CharacterVision.CanSee(eye, Vector3.forward, new Vector3(3, 1, 4), 140, 7, wall), "beside the wall");
         }
-        [Test] public void BallRollsSlowsBouncesAndStops()
+        [Test] public void ThrowsLandOnTheTargetAndRollsStopWhereAimed()
         {
-            var floor = new Bounds(new Vector3(0, -.05f, 0), new Vector3(6, .1f, 6)); var box = new[] { new Bounds(new Vector3(0, .4f, 2), new Vector3(1, .8f, .4f)) };
-            Vector3 p = new Vector3(0, CompanionPlayground.BallRadius, 0), v = new Vector3(0, 0, 3); int steps = 0;
-            while (CompanionPlayground.StepBall(ref p, ref v, .02f, floor, box) && steps < 2000) steps++;
-            Assert.That(steps, Is.LessThan(2000)); Assert.That(p.z, Is.LessThan(2 - .2f - CompanionPlayground.BallRadius + .01f), "bounced off the box");
-            Assert.That(p.y, Is.EqualTo(CompanionPlayground.BallRadius).Within(.001f));
-            p = new Vector3(-2, CompanionPlayground.BallRadius, -2); v = new Vector3(CompanionPlayground.SpeedFor(2), 0, 0);
-            while (CompanionPlayground.StepBall(ref p, ref v, .01f, floor, new Bounds[0])) { }
-            Assert.That(p.x, Is.EqualTo(0).Within(.15f), "launch speed matches the wanted distance");
-            p = new Vector3(0, 1, 0); v = Vector3.zero; bool bounced = false;
-            for (int i = 0; i < 400; i++) { CompanionPlayground.StepBall(ref p, ref v, .01f, floor, new Bounds[0]); bounced |= v.y > .5f; }
-            Assert.True(bounced); Assert.That(p.y, Is.EqualTo(CompanionPlayground.BallRadius).Within(.01f));
-            Assert.That(CompanionPlayground.KindOf("赤いボールで"), Is.EqualTo(CompanionPlayground.ToyKind.Ball)); Assert.That(CompanionPlayground.KindOf("つみきじゃなくて積み木"), Is.EqualTo(CompanionPlayground.ToyKind.Blocks));
+            var from = new Vector3(0, .8f, 0); var to = new Vector3(3, 0, 1); float time = .7f;
+            var v = CompanionPlayground.Ballistic(from, to, time);
+            var landed = from + v * time + .5f * Physics.gravity * time * time;
+            Assert.That(Vector3.Distance(landed, to), Is.LessThan(.001f));
+            float speed = CompanionPlayground.SpeedFor(2);
+            Assert.That(speed * speed / (2 * CompanionPlayground.Deceleration), Is.EqualTo(2).Within(.001f));
+            Assert.That(CompanionPlayground.KindOf("赤いボールで"), Is.EqualTo(CompanionPlayground.ToyKind.Ball)); Assert.That(CompanionPlayground.KindOf("つみき"), Is.EqualTo(CompanionPlayground.ToyKind.Blocks));
         }
     }
 }

@@ -62,12 +62,21 @@ namespace QuestAI.Tests
                 yield return Done(performer, 40);
                 var blocks = play.Find("積み木"); Assert.NotNull(blocks, string.Join(" / ", reports)); Assert.True(blocks.stacked);
                 var heights = blocks.pieces.Select(p => p.position.y - floor).OrderBy(y => y).ToArray();
-                for (int i = 0; i < heights.Length; i++) Assert.That(heights[i], Is.EqualTo(CompanionPlayground.BlockSize / 2 + i * CompanionPlayground.BlockSize).Within(.01f), "level " + i);
+                for (int i = 0; i < heights.Length; i++) Assert.That(heights[i], Is.EqualTo(CompanionPlayground.BlockSize / 2 + i * CompanionPlayground.BlockSize).Within(.025f), "level " + i + ": " + string.Join(",", heights));
+                yield return new WaitForSeconds(1); Assert.True(blocks.stacked, "the physical tower stays up");
                 yield return ApplicationTests.SaveImage(app.Head.GetComponent<Camera>(), "Play-blocks-stacked");
 
                 performer.Run(Plan(Step(MotionAction.knock_down, "積み木")), "崩して");
                 yield return Done(performer, 30); yield return new WaitForSeconds(2);
-                Assert.False(blocks.stacked); foreach (var piece in blocks.pieces) Assert.That(piece.position.y - floor, Is.EqualTo(CompanionPlayground.BlockSize / 2).Within(.02f));
+                Assert.False(blocks.stacked); Assert.That(blocks.pieces.Max(p => p.position.y) - floor, Is.LessThan(CompanionPlayground.BlockSize * 2.2f), "toppled");
+                Assert.False(blocks.Moving, "came to rest");
+
+                // Picked up and thrown: it flies through the air, then bounces and rolls near the user.
+                float highest = 0; performer.Run(Plan(Step(MotionAction.throw_ball, ball.item.id, MotionDirection.to_user)), "ボールを投げて");
+                for (float end = Time.realtimeSinceStartup + 30; performer.Busy && Time.realtimeSinceStartup < end;) { highest = Mathf.Max(highest, ball.Center.y - floor); yield return null; }
+                Assert.False(performer.Busy); Assert.That(highest, Is.GreaterThan(.6f), "thrown in an arc"); Assert.That(reports, Has.Some.Contains("投げました"));
+                wait = Time.realtimeSinceStartup + 10; while (ball.Moving && Time.realtimeSinceStartup < wait) yield return null;
+                Assert.That(Vector3.Distance(Flat(ball.Center), Flat(app.Head.position)), Is.LessThan(2.2f), "landed near the user");
 
                 performer.Run(Plan(Step(MotionAction.fetch, ball.item.id)), "ボール持ってきて");
                 yield return Done(performer, 40);

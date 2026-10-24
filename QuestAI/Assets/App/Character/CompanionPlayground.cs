@@ -6,26 +6,29 @@ using UnityEngine;
 
 namespace QuestAI
 {
-    // Toys in the room: placement, simple rolling/bouncing physics, block towers and carrying.
-    // The character's play (walking over, pushing, stacking) is sequenced by MotionPerformer; the conversation stays connected.
+    // Toys driven by Unity physics: the ball rolls and bounces, blocks stack and topple, the top spins.
+    // The character picks them up, carries, throws and places them; the user can push them with the pointer.
+    // Sequencing (walking over, timing a kick) is MotionPerformer's job; the conversation stays connected throughout.
     public sealed class CompanionPlayground : MonoBehaviour
     {
         public enum ToyKind { Ball, Blocks, Spinner }
         public sealed class Toy
         {
-            public GameObject root; public SceneObject item; public ToyKind kind;
-            public Vector3 velocity; public float spin; public bool rolling, carried, stacked;
-            public readonly List<Transform> pieces = new List<Transform>();
-            public Vector3 Position => root.transform.position;
-            // Where the toy visibly is (the ball's centre, the middle of the blocks).
+            public GameObject root; public SceneObject item; public ToyKind kind; public bool stacked;
+            public readonly List<Rigidbody> bodies = new List<Rigidbody>();
+            public IEnumerable<Transform> pieces => bodies.Select(b => b.transform);
             public Vector3 Center => item.bounds.center;
-            public float Speed => new Vector2(velocity.x, velocity.z).magnitude;
+            public bool carried => bodies.Any(b => b.isKinematic);
+            public bool Moving => bodies.Any(b => !b.isKinematic && (b.linearVelocity.sqrMagnitude > .0025f || b.angularVelocity.sqrMagnitude > .25f));
+            public bool rolling => Moving;
         }
         public const float BallRadius = .2f, Deceleration = .9f, BlockSize = .15f;
         public const int Blocks = 5, MaxToys = 8;
         readonly List<Toy> toys = new List<Toy>();
         readonly List<Material> materials = new List<Material>();
-        CharacterBrain brain;
+        // Bodies held by the character, each kept at an offset from the hands.
+        readonly Dictionary<Rigidbody, Vector3> held = new Dictionary<Rigidbody, Vector3>();
+        CharacterBrain brain; RoomPhysics room;
         ToyKind? placing;
         Toy selected;
         int serial;
@@ -37,15 +40,16 @@ namespace QuestAI
         // Things the user did to a toy, told to the conversation.
         public Action<string> Noticed;
         void Awake() { brain = GetComponent<CharacterBrain>(); }
+        float Floor => brain.world.floor.max.y;
         static float Distance(Vector3 a, Vector3 b) => Vector2.Distance(new Vector2(a.x,a.z),new Vector2(b.x,b.z));
         static Vector3 Flat(Vector3 v) { v.y = 0; return v; }
         public static string Label(ToyKind kind) => kind == ToyKind.Ball ? "ボール" : kind == ToyKind.Blocks ? "積み木" : "回転おもちゃ";
         public static ToyKind? KindOf(string text)
         {
             if (string.IsNullOrEmpty(text)) return null;
-            if (text.Contains("ボール") || text.Contains("ball") || text.Contains("Ball")) return ToyKind.Ball;
-            if (text.Contains("積み木") || text.Contains("積木") || text.Contains("ブロック") || text.Contains("block")) return ToyKind.Blocks;
-            if (text.Contains("回転") || text.Contains("コマ") || text.Contains("こま") || text.Contains("spin")) return ToyKind.Spinner;
+            if (text.Contains("ボール") || text.Contains("ぼーる") || text.Contains("ball") || text.Contains("Ball") || text.Contains("球")) return ToyKind.Ball;
+            if (text.Contains("積み木") || text.Contains("積木") || text.Contains("つみき") || text.Contains("ブロック") || text.Contains("block")) return ToyKind.Blocks;
+            if (text.Contains("回転") || text.Contains("コマ") || text.Contains("こま") || text.Contains("独楽") || text.Contains("spin")) return ToyKind.Spinner;
             return null;
         }
         public static bool CanPlace(SceneAwareness world, Vector3 point, Vector3 character, Vector3 user, IEnumerable<Vector3> existing)
@@ -57,61 +61,68 @@ namespace QuestAI
         }
         public void BeginPlacement(ToyKind kind)
         {
-            placing=kind; Status?.Invoke("床をクリック／レーザーで選択して配置。最大8個。家具のない場所を選んでください。");
+            placing=kind; Status?.Invoke("床をクリック／レーザーで選択して配置。最大8個。置いたおもちゃをクリックすると自分で動かせます。");
         }
-        // A click on a toy plays with it (the user's own hand); a click on the floor places the chosen toy.
+        // A click on a toy pushes it (the user's own hand); a click on the floor places the chosen toy.
         public void PlaceFromRay(Ray ray)
         {
             if(!brain||brain.world==null)return;
             if(Touch(ray))return;
             if(!placing.HasValue)return;
-            var plane=new Plane(Vector3.up,new Vector3(0,brain.world.floor.max.y,0));
+            var plane=new Plane(Vector3.up,new Vector3(0,Floor,0));
             if(!plane.Raycast(ray,out float d)||d>8)return;
             // Do not place through furniture between the pointer and floor.
-            if(Physics.Raycast(ray,out var hit,d)&&hit.point.y>brain.world.floor.max.y+.08f){Status?.Invoke("家具の手前の空いている床を選んでください。");return;}
+            if(Physics.Raycast(ray,out var hit,d,~0,QueryTriggerInteraction.Ignore)&&hit.point.y>Floor+.08f&&!hit.rigidbody){Status?.Invoke("家具の手前の空いている床を選んでください。");return;}
             TryPlace(placing.Value,ray.GetPoint(d));
         }
         public Toy Hit(Ray ray)
         {
             Toy best=null;float nearest=8;
-            foreach(var toy in toys){var b=toy.item.bounds;b.Expand(.1f);if(b.IntersectRay(ray,out float d)&&d<nearest){nearest=d;best=toy;}}
+            foreach(var toy in toys)foreach(var body in toy.bodies)foreach(var shape in body.GetComponentsInChildren<Collider>()){var b=shape.bounds;b.Expand(.08f);if(b.IntersectRay(ray,out float d)&&d<nearest){nearest=d;best=toy;}}
             return best;
         }
         public bool Touch(Ray ray)
         {
             var toy=Hit(ray);if(toy==null||toy.carried)return false;
-            var push=Flat(ray.direction).normalized;if(push.sqrMagnitude<.01f)push=Flat(toy.Position-brain.user.position).normalized;
-            string done;
+            var push=Flat(ray.direction).normalized;string done;
             switch(toy.kind)
             {
-                case ToyKind.Ball:Push(toy,push*2.2f);done="ユーザーが"+toy.item.id+"を転がしました。";break;
-                case ToyKind.Blocks:if(toy.stacked){KnockDown(toy,push);done="ユーザーが"+toy.item.id+"の塔を崩しました。";}else{StartCoroutine(Stack(toy,Blocks,.25f));done="ユーザーが"+toy.item.id+"を積み上げました。";}break;
-                default:Spin(toy,900);done="ユーザーが"+toy.item.id+"を回しました。";break;
+                case ToyKind.Ball:Push(toy,push*2.4f);done="ユーザーが"+toy.item.id+"を転がしました。";break;
+                case ToyKind.Blocks:Shove(toy,push,2.2f);done="ユーザーが"+toy.item.id+"を押しました。";break;
+                default:Spin(toy,30);done="ユーザーが"+toy.item.id+"を回しました。";break;
             }
             selected=toy;Status?.Invoke(done.Replace("ユーザーが","あなたが"));Noticed?.Invoke(done);return true;
         }
         public bool TryPlace(ToyKind kind,Vector3 point)
         {
             if(!brain||brain.world==null||toys.Count>=MaxToys||
-                !CanPlace(brain.world,point,brain.transform.position,brain.user.position,toys.Select(t=>t.Position)))
+                !CanPlace(brain.world,point,brain.transform.position,brain.user.position,toys.Select(t=>t.Center)))
             {Status?.Invoke("ここには置けません。キャラクター・家具から離れた床を選んでください。");return false;}
-            point.y=brain.world.floor.max.y;
+            if(!room)room=RoomPhysics.Build(brain);
+            point.y=Floor;
             string label=Label(kind);
             var root=new GameObject(label);root.transform.position=point;
             UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root,gameObject.scene);
-            var toy=new Toy{root=root,kind=kind,item=new SceneObject{id=label+(++serial),label=label,obstacle=true}};
-            if(kind==ToyKind.Ball)Part(toy,PrimitiveType.Sphere,new Vector3(0,BallRadius,0),Vector3.one*BallRadius*2,new Color(.95f,.37f,.18f));
+            // Toys never block paths: the character's body nudges them aside physically instead.
+            var toy=new Toy{root=root,kind=kind,item=new SceneObject{id=label+(++serial),label=label,obstacle=false}};
+            if(kind==ToyKind.Ball){var ball=Piece(toy,PrimitiveType.Sphere,point+Vector3.up*BallRadius,Quaternion.identity,Vector3.one*BallRadius*2,new Color(.95f,.37f,.18f),.35f,RoomPhysics.Bouncy);ball.angularDamping=.15f;ball.maxAngularVelocity=60;}
             else if(kind==ToyKind.Blocks)
             {
                 // Scattered loosely on the floor so there is something to stack.
                 for(int i=0;i<Blocks;i++)
                 {
-                    float angle=i*72+serial*17;var at=Quaternion.Euler(0,angle,0)*Vector3.forward*(i==0?0:.22f);
-                    var piece=Part(toy,PrimitiveType.Cube,at+Vector3.up*BlockSize/2,Vector3.one*BlockSize,Color.HSVToRGB(i/(float)Blocks*.8f+.05f,.6f,.95f));piece.localRotation=Quaternion.Euler(0,angle*1.7f,0);
+                    float angle=i*72+serial*17;var at=point+Quaternion.Euler(0,angle,0)*Vector3.forward*(i==0?0:.24f)+Vector3.up*BlockSize/2;
+                    var block=Piece(toy,PrimitiveType.Cube,at,Quaternion.Euler(0,angle*1.7f,0),Vector3.one*BlockSize,Color.HSVToRGB(i/(float)Blocks*.8f+.05f,.6f,.95f),.12f,RoomPhysics.Grippy);block.solverIterations=24;block.sleepThreshold=.02f;
                 }
             }
-            else {Part(toy,PrimitiveType.Cylinder,new Vector3(0,.05f,0),new Vector3(.4f,.05f,.4f),new Color(.4f,.25f,.65f));Part(toy,PrimitiveType.Cube,new Vector3(0,.2f,0),new Vector3(.4f,.08f,.12f),new Color(1,.72f,.22f));}
-            Sync(toy);toys.Add(toy);brain.world.objects.Add(toy.item);RebuildGrid();selected=toy;placing=null;
+            else
+            {
+                // A disc with a bar on top, kept upright while it spins.
+                var top=new GameObject("Top");top.transform.SetParent(root.transform,false);top.transform.position=point+Vector3.up*.06f;
+                Visual(toy,top.transform,PrimitiveType.Cylinder,Vector3.zero,new Vector3(.4f,.05f,.4f),new Color(.4f,.25f,.65f));Visual(toy,top.transform,PrimitiveType.Cube,new Vector3(0,.12f,0),new Vector3(.4f,.08f,.12f),new Color(1,.72f,.22f));
+                var body=top.AddComponent<Rigidbody>();body.mass=.4f;body.constraints=RigidbodyConstraints.FreezeRotationX|RigidbodyConstraints.FreezeRotationZ;body.angularDamping=.35f;body.maxAngularVelocity=60;body.interpolation=RigidbodyInterpolation.Interpolate;toy.bodies.Add(body);
+            }
+            Sync(toy);toys.Add(toy);brain.world.objects.Add(toy.item);selected=toy;placing=null;
             Status?.Invoke(toy.item.id+"を置きました。声や文字で遊び方を頼んでみよう。");return true;
         }
         // Puts a new toy on free floor in front of the character, preferring the space between it and the user.
@@ -121,28 +132,34 @@ namespace QuestAI
             Vector3 self=brain.transform.position,user=brain.user.position,ideal=self+brain.transform.forward*1.2f;
             ideal=Vector3.Lerp(ideal,(self+user)/2,.4f);
             foreach(var cell in brain.world.grid.FreeCells().OrderBy(c=>Distance(c,ideal)))
-                if(CanPlace(brain.world,cell,self,user,toys.Select(t=>t.Position))&&TryPlace(kind,cell))return toys[toys.Count-1];
+                if(CanPlace(brain.world,cell,self,user,toys.Select(t=>t.Center))&&TryPlace(kind,cell))return toys[toys.Count-1];
             return null;
         }
-        Transform Part(Toy toy,PrimitiveType shape,Vector3 at,Vector3 scale,Color color)
+        Material Paint(Color color){var material=new Material(Shader.Find("Universal Render Pipeline/Lit"));material.color=color;material.SetFloat("_Smoothness",.35f);materials.Add(material);return material;}
+        Rigidbody Piece(Toy toy,PrimitiveType shape,Vector3 at,Quaternion rotation,Vector3 scale,Color color,float mass,PhysicsMaterial surface)
         {
-            var part=GameObject.CreatePrimitive(shape);Destroy(part.GetComponent<Collider>());part.transform.SetParent(toy.root.transform,false);part.transform.localPosition=at;part.transform.localScale=scale;
-            var material=new Material(Shader.Find("Universal Render Pipeline/Lit"));material.color=color;material.SetFloat("_Smoothness",.35f);materials.Add(material);part.GetComponent<Renderer>().sharedMaterial=material;
-            toy.pieces.Add(part.transform);return part.transform;
+            var part=GameObject.CreatePrimitive(shape);part.transform.SetParent(toy.root.transform,true);part.transform.SetPositionAndRotation(at,rotation);part.transform.localScale=scale;
+            part.GetComponent<Renderer>().sharedMaterial=Paint(color);part.GetComponent<Collider>().sharedMaterial=surface;
+            var body=part.AddComponent<Rigidbody>();body.mass=mass;body.interpolation=RigidbodyInterpolation.Interpolate;body.collisionDetectionMode=CollisionDetectionMode.ContinuousDynamic;
+            toy.bodies.Add(body);return body;
         }
-        // Bounds follow the visible pieces so the room model, vision and pathing see where the toy really is.
+        void Visual(Toy toy,Transform parent,PrimitiveType shape,Vector3 at,Vector3 scale,Color color)
+        {
+            var part=GameObject.CreatePrimitive(shape);part.transform.SetParent(parent,false);part.transform.localPosition=at;part.transform.localScale=scale;part.GetComponent<Renderer>().sharedMaterial=Paint(color);
+            if(shape==PrimitiveType.Cylinder){Destroy(part.GetComponent<Collider>());part.AddComponent<BoxCollider>().size=new Vector3(1,2,1);}
+        }
+        // Bounds follow the visible pieces so the room model, vision and planning see where the toy really is.
         void Sync(Toy toy)
         {
             if(!toy.root)return;var renderers=toy.root.GetComponentsInChildren<Renderer>();if(renderers.Length==0)return;
-            var b=renderers[0].bounds;foreach(var r in renderers)b.Encapsulate(r.bounds);
-            b.Expand(new Vector3(Mathf.Max(0,.3f-b.size.x),0,Mathf.Max(0,.3f-b.size.z)));toy.item.bounds=b;
+            var b=renderers[0].bounds;foreach(var r in renderers)b.Encapsulate(r.bounds);toy.item.bounds=b;
+            if(toy.kind==ToyKind.Blocks){float top=toy.bodies.Max(p=>p.position.y)-Floor;toy.stacked=top>BlockSize*2.4f&&!toy.carried;}
         }
-        void RebuildGrid(){if(brain&&brain.world!=null)brain.world.grid=new NavGrid(brain.world.floor,brain.world.objects.Where(o=>o.obstacle).Select(o=>o.bounds));}
         public Toy Find(string id,ToyKind? kind=null)
         {
             var exact=toys.FirstOrDefault(t=>t.item.id==id);if(exact!=null)return exact;
             var wanted=KindOf(id)??kind;if(!wanted.HasValue)return null;
-            return toys.Where(t=>t.kind==wanted.Value).OrderBy(t=>t==selected?0:1).ThenBy(t=>Distance(t.Position,brain.transform.position)).FirstOrDefault();
+            return toys.Where(t=>t.kind==wanted.Value).OrderBy(t=>t==selected?0:1).ThenBy(t=>Distance(t.Center,brain.transform.position)).FirstOrDefault();
         }
         public Toy Carried => toys.FirstOrDefault(t=>t.carried);
         // A free cell next to the toy, as close as possible to where the character should stand (e.g. behind a ball to push it).
@@ -151,161 +168,157 @@ namespace QuestAI
             spot=default;float best=float.MaxValue;bool found=false;
             foreach(var cell in brain.world.grid.FreeCells())
             {
-                float edge=SceneAwareness.FlatDistance(toy.item,cell);if(edge<.25f||edge>.85f||Distance(cell,brain.user.position)<.5f)continue;
+                float edge=SceneAwareness.FlatDistance(toy.item,cell);if(edge<.22f||edge>.8f||Distance(cell,brain.user.position)<.5f)continue;
                 float score=Distance(cell,preferred)*2+Distance(cell,brain.transform.position)*.2f;
                 if(score<best){best=score;spot=cell;found=true;}
             }
             return found;
         }
+        // Where held things sit: between the hands, in front of the chest.
+        public Vector3 Hands
+        {
+            get
+            {
+                var t=brain.transform;var rig=brain.body?brain.body.rig:null;
+                if(rig&&rig.chest)return rig.chest.position+t.forward*.24f-Vector3.up*.08f;
+                return t.position+t.forward*.3f+Vector3.up*.5f;
+            }
+        }
         public void Push(Toy toy,Vector3 velocity)
         {
             if(toy==null||toy.kind!=ToyKind.Ball||toy.carried)return;
-            toy.velocity=velocity;
-            // A rolling ball is not an obstacle for paths; it becomes one again where it stops.
-            if(!toy.rolling){toy.rolling=true;toy.item.obstacle=false;RebuildGrid();}
+            var ball=toy.bodies[0];ball.WakeUp();ball.linearVelocity=velocity;
+            var flat=Flat(velocity);if(flat.sqrMagnitude>.0001f)ball.angularVelocity=Vector3.Cross(Vector3.up,flat)/BallRadius;
         }
         // Launch speed that makes the ball come to rest after about this distance.
         public static float SpeedFor(float distance)=>Mathf.Sqrt(2*Deceleration*Mathf.Max(.2f,distance));
-        // One physics step for a ball: gravity and floor bounces, rolling friction, walls and obstacle bounds. Returns false at rest.
-        public static bool StepBall(ref Vector3 position,ref Vector3 velocity,float dt,Bounds floor,IList<Bounds> obstacles,float radius=BallRadius)
+        // Velocity that carries a thrown body from one point to another in the given time.
+        public static Vector3 Ballistic(Vector3 from,Vector3 to,float time)
         {
-            float ground=floor.max.y+radius;bool airborne=position.y>ground+.002f||velocity.y>0;
-            if(airborne)velocity.y-=9.81f*dt;
-            else
-            {
-                var flat=new Vector2(velocity.x,velocity.z);float speed=Mathf.Max(0,flat.magnitude-Deceleration*dt);
-                flat=flat.sqrMagnitude>1e-8f?flat.normalized*speed:Vector2.zero;velocity=new Vector3(flat.x,0,flat.y);
-            }
-            float y=position.y+velocity.y*dt;
-            if(y<ground){y=ground;velocity.y=velocity.y<-1?-velocity.y*.45f:0;}
-            var next=new Vector3(position.x+velocity.x*dt,y,position.z);
-            if(next.x<floor.min.x+radius||next.x>floor.max.x-radius||Blocked(next,obstacles,radius)){velocity.x=-velocity.x*.6f;next.x=position.x;}
-            next.z=position.z+velocity.z*dt;
-            if(next.z<floor.min.z+radius||next.z>floor.max.z-radius||Blocked(next,obstacles,radius)){velocity.z=-velocity.z*.6f;next.z=position.z;}
-            position=next;
-            return airborne||new Vector2(velocity.x,velocity.z).magnitude>.03f;
+            time=Mathf.Max(.15f,time);var delta=to-from;
+            return new Vector3(delta.x/time,(delta.y+.5f*-Physics.gravity.y*time*time)/time,delta.z/time);
         }
-        static bool Blocked(Vector3 p,IList<Bounds> obstacles,float radius)
+        public void Shove(Toy toy,Vector3 direction,float strength)
         {
-            for(int i=0;i<obstacles.Count;i++)
-            {
-                var b=obstacles[i];if(p.y-radius>b.max.y)continue;
-                if(p.x>b.min.x-radius&&p.x<b.max.x+radius&&p.z>b.min.z-radius&&p.z<b.max.z+radius)return true;
-            }
-            return false;
+            if(toy==null||toy.carried)return;direction=Flat(direction).normalized;
+            foreach(var body in toy.bodies){body.WakeUp();float height=Mathf.Clamp01((body.position.y-Floor)/.6f);body.AddForce((direction*(1+height)+Vector3.up*height*.6f)*strength,ForceMode.VelocityChange);body.AddTorque(UnityEngine.Random.insideUnitSphere*strength*4,ForceMode.VelocityChange);}
         }
-        void Update()
+        public void KnockDown(Toy toy,Vector3 push)=>Shove(toy,push,2.6f);
+        public void Spin(Toy toy,float radiansPerSecond){if(toy!=null&&toy.kind==ToyKind.Spinner&&!toy.carried){var body=toy.bodies[0];body.WakeUp();body.angularVelocity=Vector3.up*radiansPerSecond;}}
+        void FixedUpdate()
         {
-            if(!brain||brain.world==null)return;float dt=Mathf.Min(Time.deltaTime,.05f);
+            if(!brain||brain.world==null)return;
+            // Rolling resistance: a steady slowdown while the ball is on the floor, so it comes to rest where intended.
             foreach(var toy in toys)
             {
-                if(toy.kind==ToyKind.Spinner&&toy.spin>0&&toy.pieces.Count>1){toy.pieces[1].Rotate(0,toy.spin*dt,0,Space.Self);toy.spin=Mathf.MoveTowards(toy.spin,0,160*dt);}
-                if(!toy.rolling)continue;
-                var ball=toy.pieces[0];Vector3 center=ball.position,before=center;
-                // The character's and user's legs stop the ball as well as furniture.
-                var obstacles=brain.world.objects.Where(o=>o.obstacle&&o!=toy.item).Select(o=>o.bounds).ToList();
-                obstacles.Add(new Bounds(Flat(brain.transform.position)+Vector3.up*.5f,new Vector3(.4f,1,.4f)));obstacles.Add(new Bounds(Flat(brain.user.position)+Vector3.up*.5f,new Vector3(.35f,1,.35f)));
-                foreach(var other in toys)if(other!=toy&&!other.carried)obstacles.Add(other.item.bounds);
-                bool moving=StepBall(ref center,ref toy.velocity,dt,brain.world.floor,obstacles);
-                toy.root.transform.position+=center-before;
-                var travel=Flat(center-before);if(travel.sqrMagnitude>1e-8f)ball.Rotate(Vector3.Cross(Vector3.up,travel.normalized),travel.magnitude/BallRadius*Mathf.Rad2Deg,Space.World);
-                Sync(toy);
-                if(!moving){toy.rolling=false;toy.velocity=Vector3.zero;toy.item.obstacle=true;RebuildGrid();}
+                if(toy.kind!=ToyKind.Ball)continue;var ball=toy.bodies[0];if(ball.isKinematic||ball.position.y>Floor+BallRadius+.03f)continue;
+                var v=ball.linearVelocity;var flat=Flat(v);float speed=flat.magnitude;if(speed<1e-4f)continue;
+                float slower=Mathf.Max(0,speed-Deceleration*Time.fixedDeltaTime);ball.linearVelocity=flat/speed*slower+Vector3.up*v.y;
+                ball.angularVelocity=Vector3.Cross(Vector3.up,flat/speed*slower)/BallRadius;
             }
         }
+        void Update(){if(brain&&brain.world!=null)foreach(var toy in toys)if(toy.carried||toy.Moving||Time.frameCount%15==0)Sync(toy);}
         void LateUpdate()
         {
-            var carried=Carried;if(carried==null||!brain)return;
-            // Held in front of the chest; the ball's root sits below its centre.
-            var holder=brain.transform;var at=holder.position+holder.forward*.33f+Vector3.up*(carried.kind==ToyKind.Ball?.42f:.5f);
-            carried.root.transform.position=at;carried.root.transform.rotation=holder.rotation;Sync(carried);
+            if(held.Count==0||!brain)return;var hands=Hands;var rotation=Quaternion.Euler(0,brain.transform.eulerAngles.y,0);
+            foreach(var pair in held){if(!pair.Key)continue;pair.Key.transform.SetPositionAndRotation(hands+rotation*pair.Value,rotation);}
         }
-        public void PickUp(Toy toy)
+        // Holding: the bodies stop simulating and follow the hands. Blocks are held as a small stack, or one at a time.
+        public List<Rigidbody> PickUp(Toy toy,bool single=false)
         {
-            if(toy==null||toy.carried)return;if(Carried!=null)PutDown(Carried,brain.transform.position+brain.transform.forward*.45f);
-            toy.rolling=false;toy.velocity=Vector3.zero;toy.carried=true;toy.stacked=false;brain.world.objects.Remove(toy.item);RebuildGrid();
-            if(toy.kind==ToyKind.Blocks)for(int i=0;i<toy.pieces.Count;i++){toy.pieces[i].localPosition=new Vector3(0,BlockSize/2+i*BlockSize*.95f,0);toy.pieces[i].localRotation=Quaternion.identity;}
+            var taken=new List<Rigidbody>();if(toy==null)return taken;
+            var bodies=single||toy.kind!=ToyKind.Blocks?toy.bodies.OrderBy(b=>Vector3.Distance(b.position,Hands)).Take(1):toy.bodies;
+            int level=0;
+            foreach(var body in bodies)
+            {
+                if(held.ContainsKey(body))continue;Hold(body,toy.kind==ToyKind.Blocks?Vector3.up*(level++*BlockSize*1.02f):Vector3.zero);taken.Add(body);
+            }
+            if(brain.body)brain.body.Holding=held.Count>0;Sync(toy);return taken;
         }
+        void Hold(Rigidbody body,Vector3 offset){body.isKinematic=true;body.detectCollisions=false;held[body]=offset;}
+        // Lets go of held bodies with a velocity (zero: they simply drop).
+        public void Release(IEnumerable<Rigidbody> bodies,Vector3 velocity,Vector3 spin=default)
+        {
+            foreach(var body in bodies.ToList())
+            {
+                if(!body||!held.Remove(body))continue;
+                body.isKinematic=false;body.detectCollisions=true;body.WakeUp();body.linearVelocity=velocity;body.angularVelocity=spin;
+            }
+            if(brain.body)brain.body.Holding=held.Count>0;
+        }
+        public void ReleaseAll(Vector3 velocity)=>Release(held.Keys,velocity);
         public void PutDown(Toy toy,Vector3 point)
         {
             if(toy==null||!toy.carried)return;
-            point=brain.world.grid.Snap(point);point.y=brain.world.floor.max.y;
-            toy.carried=false;toy.root.transform.position=point;toy.root.transform.rotation=Quaternion.identity;
-            if(toy.kind==ToyKind.Blocks)toy.stacked=true;
-            Sync(toy);if(!brain.world.objects.Contains(toy.item))brain.world.objects.Add(toy.item);RebuildGrid();
+            point=brain.world.grid.Snap(point);var mine=toy.bodies.Where(b=>held.ContainsKey(b)).ToList();
+            for(int i=0;i<mine.Count;i++){var size=toy.kind==ToyKind.Ball?BallRadius:toy.kind==ToyKind.Blocks?BlockSize/2:.06f;mine[i].transform.position=new Vector3(point.x,Floor+size+i*BlockSize*1.01f,point.z);}
+            Release(mine,Vector3.zero);Sync(toy);
         }
-        // Moves each block along a small arc to its place; used for stacking and lining up.
-        IEnumerator Arrange(Toy toy,Func<int,Vector3> place,int count,float each)
+        // Throws the held body so it lands on the target point.
+        public void Throw(IEnumerable<Rigidbody> bodies,Vector3 target,float flight)
         {
-            var order=toy.pieces.OrderBy(p=>Vector3.Distance(p.localPosition,place(0))).ToList();
-            for(int i=0;i<order.Count;i++)
-            {
-                var piece=order[i];Vector3 from=piece.localPosition,to=i<count?place(i):new Vector3(piece.localPosition.x,BlockSize/2,piece.localPosition.z);Quaternion turn=piece.localRotation;
-                for(float t=0;t<1;t+=Time.deltaTime/each)
-                {
-                    float s=Mathf.SmoothStep(0,1,t);piece.localPosition=Vector3.Lerp(from,to,s)+Vector3.up*Mathf.Sin(s*Mathf.PI)*.18f;piece.localRotation=Quaternion.Slerp(turn,Quaternion.identity,s);yield return null;
-                }
-                piece.localPosition=to;piece.localRotation=Quaternion.identity;Sync(toy);
-            }
-            RebuildGrid();
+            var list=bodies.ToList();if(list.Count==0)return;
+            var from=list[0].position;Release(list,Ballistic(from,target,flight),UnityEngine.Random.insideUnitSphere*6);
         }
-        public IEnumerator Stack(Toy toy,int count,float each=.45f)
+        // Lifts one body along a small arc to a resting place and lets physics take over (used to stack and line up blocks).
+        public IEnumerator Place(Rigidbody body,Vector3 position,Quaternion rotation,float seconds=.5f)
+        {
+            if(!body)yield break;held.Remove(body);body.isKinematic=true;body.detectCollisions=false;
+            Vector3 from=body.position;Quaternion turn=body.rotation;var via=Hands;
+            for(float t=0;t<1;t+=Time.deltaTime/seconds)
+            {
+                float s=Mathf.SmoothStep(0,1,t);
+                // Through the hands, so the block visibly passes through the character's grip.
+                var a=Vector3.Lerp(from,via,s);var b=Vector3.Lerp(via,position+Vector3.up*.02f,s);body.transform.SetPositionAndRotation(Vector3.Lerp(a,b,s),Quaternion.Slerp(turn,rotation,s));
+                yield return null;
+            }
+            body.transform.SetPositionAndRotation(position+Vector3.up*.004f,rotation);body.isKinematic=false;body.detectCollisions=true;body.linearVelocity=Vector3.zero;body.angularVelocity=Vector3.zero;
+            if(brain.body)brain.body.Holding=held.Count>0;
+        }
+        // Builds a tower one block at a time; a block that slides off is simply tried again on top of what stands.
+        public IEnumerator Stack(Toy toy,int count,float each=.5f)
         {
             if(toy==null||toy.kind!=ToyKind.Blocks)yield break;
-            count=Mathf.Clamp(count<=0?Blocks:count,2,Blocks);toy.stacked=true;
-            yield return Arrange(toy,i=>new Vector3(0,BlockSize/2+i*BlockSize,0),count,each);
+            count=Mathf.Clamp(count<=0?Blocks:count,2,Blocks);
+            Release(toy.bodies.Where(b=>held.ContainsKey(b)),Vector3.zero);
+            var baseBlock=toy.bodies.OrderBy(b=>b.position.y).ThenBy(b=>Distance(b.position,toy.Center)).First();
+            var spot=new Vector3(baseBlock.position.x,Floor+BlockSize/2,baseBlock.position.z);var yaw=Quaternion.Euler(0,brain.transform.eulerAngles.y,0);
+            yield return Place(baseBlock,spot,yaw,each*.6f);yield return new WaitForSeconds(.15f);
+            var tower=new List<Rigidbody>{baseBlock};
+            for(int attempt=0;tower.Count<count&&attempt<count*2;attempt++)
+            {
+                var next=toy.bodies.Where(b=>!tower.Contains(b)).OrderBy(b=>Vector3.Distance(b.position,spot)).FirstOrDefault();if(!next)break;
+                // Only blocks still standing on the column count as the tower.
+                tower=tower.Where(b=>Distance(b.position,spot)<BlockSize*.5f).OrderBy(b=>b.position.y).ToList();
+                float top=tower.Count==0?Floor:tower.Max(b=>b.position.y)+BlockSize/2;
+                yield return Place(next,new Vector3(spot.x,top+BlockSize/2,spot.z),yaw,each);yield return new WaitForSeconds(.25f);
+                if(Distance(next.position,spot)<BlockSize*.5f&&next.position.y>top)tower.Add(next);
+            }
+            Sync(toy);
         }
-        public IEnumerator LineUp(Toy toy,Vector3 axis,float each=.4f)
+        public IEnumerator LineUp(Toy toy,Vector3 axis,float each=.45f)
         {
             if(toy==null||toy.kind!=ToyKind.Blocks)yield break;
-            toy.stacked=false;var local=toy.root.transform.InverseTransformDirection(Flat(axis).normalized);if(local.sqrMagnitude<.01f)local=Vector3.right;
-            yield return Arrange(toy,i=>local*((i-(Blocks-1)/2f)*.2f)+Vector3.up*BlockSize/2,Blocks,each);
+            Release(toy.bodies.Where(b=>held.ContainsKey(b)),Vector3.zero);
+            axis=Flat(axis).normalized;if(axis.sqrMagnitude<.01f)axis=Vector3.right;var center=Flat(toy.Center)+Vector3.up*(Floor+BlockSize/2);var yaw=Quaternion.LookRotation(Vector3.Cross(axis,Vector3.up));
+            var order=toy.bodies.OrderBy(b=>Vector3.Dot(b.position,axis)).ToList();
+            for(int i=0;i<order.Count;i++)yield return Place(order[i],center+axis*((i-(order.Count-1)/2f)*.22f),yaw,each);
+            Sync(toy);
         }
-        // Blocks fly off with a push and come to rest flat on the floor.
-        public void KnockDown(Toy toy,Vector3 push){if(toy!=null&&toy.kind==ToyKind.Blocks&&!toy.carried){toy.stacked=false;StartCoroutine(Scatter(toy,Flat(push).normalized));}}
-        IEnumerator Scatter(Toy toy,Vector3 push)
-        {
-            var random=new System.Random(serial*31+toy.pieces.Count);
-            var velocity=toy.pieces.Select((p,i)=>push*(1.1f+(float)random.NextDouble())+Quaternion.Euler(0,random.Next(-60,60),0)*push*.5f+Vector3.up*(.6f+i*.25f)).ToArray();
-            var spin=toy.pieces.Select(_=>new Vector3(random.Next(-400,400),random.Next(-400,400),random.Next(-400,400))).ToArray();
-            for(float t=0;t<1.6f;t+=Time.deltaTime)
-            {
-                bool any=false;
-                for(int i=0;i<toy.pieces.Count;i++)
-                {
-                    var piece=toy.pieces[i];if(velocity[i]==Vector3.zero)continue;any=true;
-                    velocity[i]+=Vector3.down*9.81f*Time.deltaTime;var p=piece.position+velocity[i]*Time.deltaTime;float ground=brain.world.floor.max.y+BlockSize/2;
-                    var room=brain.world.floor;p.x=Mathf.Clamp(p.x,room.min.x+.1f,room.max.x-.1f);p.z=Mathf.Clamp(p.z,room.min.z+.1f,room.max.z-.1f);
-                    piece.Rotate(spin[i]*Time.deltaTime,Space.World);
-                    if(p.y<=ground){p.y=ground;velocity[i]=Vector3.zero;piece.rotation=Quaternion.Euler(0,piece.eulerAngles.y,0);}
-                    piece.position=p;
-                }
-                Sync(toy);if(!any)break;yield return null;
-            }
-            foreach(var piece in toy.pieces){var p=piece.position;p.y=brain.world.floor.max.y+BlockSize/2;piece.position=p;piece.rotation=Quaternion.Euler(0,piece.eulerAngles.y,0);}
-            Sync(toy);RebuildGrid();
-        }
-        public void Spin(Toy toy,float degreesPerSecond){if(toy!=null&&toy.kind==ToyKind.Spinner)toy.spin=Mathf.Max(toy.spin,degreesPerSecond);}
         public IEnumerator Bounce(Toy toy,int times)
         {
-            if(toy==null||toy.kind!=ToyKind.Ball)yield break;var ball=toy.pieces[0];var rest=new Vector3(0,BallRadius,0);
-            for(float t=0;t<Mathf.Max(1,times)*.5f;t+=Time.deltaTime){ball.localPosition=rest+Vector3.up*Mathf.Abs(Mathf.Sin(t*Mathf.PI*2))*.4f;Sync(toy);yield return null;}
-            ball.localPosition=rest;Sync(toy);
-        }
-        // Blocks interrupted mid-air drop straight down; nothing is left floating.
-        public void Settle()
-        {
-            foreach(var toy in toys)
+            if(toy==null||toy.kind!=ToyKind.Ball)yield break;var ball=toy.bodies[0];
+            for(int i=0;i<Mathf.Max(1,times);i++)
             {
-                if(toy.kind!=ToyKind.Blocks||toy.carried)continue;
-                foreach(var piece in toy.pieces)
-                {
-                    var p=piece.localPosition;float level=(p.y-BlockSize/2)/BlockSize;bool onTower=new Vector2(p.x,p.z).magnitude<.02f&&Mathf.Abs(level-Mathf.Round(level))<.05f;
-                    if(!onTower){p.y=BlockSize/2;piece.localPosition=p;piece.localRotation=Quaternion.Euler(0,piece.localEulerAngles.y,0);}
-                }
-                Sync(toy);
+                if(!held.ContainsKey(ball))PickUp(toy);
+                Release(new[]{ball},Vector3.down*3.2f);
+                // Catch it on the way back up.
+                for(float t=0;t<1.2f;t+=Time.deltaTime){yield return null;if(t>.2f&&ball.linearVelocity.y<=0&&ball.position.y>Hands.y-.35f)break;}
+                if(i<times-1)PickUp(toy);
             }
         }
+        // Anything left in the air when play is interrupted falls under gravity.
+        public void Settle(){ReleaseAll(Vector3.zero);}
         public void Next(){if(toys.Count>0)selected=toys[(toys.IndexOf(selected)+1)%toys.Count];Status?.Invoke("選択: "+SelectedName);}
         // The "play" button: a sensible default game with the selected toy, run as a motion plan.
         public bool PlaySelected()
@@ -322,12 +335,13 @@ namespace QuestAI
         }
         public void ClearToys()
         {
-            Cancel();StopAllCoroutines();foreach(var toy in toys){if(brain&&brain.world!=null)brain.world.objects.Remove(toy.item);if(toy.root)Destroy(toy.root);}
+            Cancel();StopAllCoroutines();held.Clear();if(brain&&brain.body)brain.body.Holding=false;
+            foreach(var toy in toys){if(brain&&brain.world!=null)brain.world.objects.Remove(toy.item);if(toy.root)Destroy(toy.root);}
             toys.Clear();selected=null;foreach(var material in materials)if(material)Destroy(material);materials.Clear();
-            RebuildGrid();Status?.Invoke("おもちゃを片づけました。");
+            Status?.Invoke("おもちゃを片づけました。");
         }
         void OnApplicationPause(bool paused){if(paused)Cancel();}
         void OnApplicationFocus(bool focused){if(!focused)Cancel();}
-        void OnDestroy(){Status=null;Noticed=null;ClearToys();}
+        void OnDestroy(){Status=null;Noticed=null;ClearToys();if(room)Destroy(room.gameObject);}
     }
 }

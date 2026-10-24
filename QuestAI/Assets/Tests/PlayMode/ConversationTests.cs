@@ -118,12 +118,27 @@ namespace QuestAI.Tests
         [UnityTest] public IEnumerator InstructionBecomesMotionPlanAndStopEndsIt()
         {
             var planner=new Planner();brain.planner=planner;brain.Connect();
-            Assert.True(brain.SendText("うなずいて"));yield return null;yield return null;
-            Assert.That(planner.requests.Select(r=>r.text),Is.EqualTo(new[]{"うなずいて"}));Assert.That(planner.requests[0].characterName,Is.EqualTo(brain.profile.displayName));
-            Assert.True(brain.performer.Busy);Assert.That(brain.performer.Request,Is.EqualTo("うなずいて"));
+            // Understood on the device: runs at once without asking the AI planner.
+            Assert.True(brain.SendText("ジャンプして"));yield return null;yield return null;
+            Assert.That(planner.requests,Is.Empty);Assert.True(brain.performer.Busy);Assert.That(brain.performer.Last.steps[0].motion,Is.EqualTo(MotionPreset.jump));
+            brain.performer.Stop();live.Emit("session.output_transcript.delta","はい");brain.Disconnect();live=new Live();brain.Connect();
+            // Not understood locally: the AI planner decides.
+            Assert.True(brain.SendText("変なポーズして"));yield return null;yield return null;
+            Assert.That(planner.requests.Select(r=>r.text),Is.EqualTo(new[]{"変なポーズして"}));Assert.That(planner.requests[0].characterName,Is.EqualTo(brain.profile.displayName));
+            Assert.True(brain.performer.Busy);Assert.That(brain.performer.Request,Is.EqualTo("変なポーズして"));
             Assert.False(brain.ApplyDecision(new BehaviorDecision{emotion=Emotion.sad,movement=Movement.wander}),"Jev cannot move the body during an instruction");Assert.That(brain.State.emotion,Is.EqualTo(Emotion.sad));
             brain.settings.motionPlanning=false;yield return new WaitForSeconds(5.2f);Assert.False(brain.performer.Busy);
             brain.performer.Run(brain.performer.Last,"again");Assert.True(brain.performer.Busy);brain.Suspend();Assert.False(brain.performer.Busy);
+        }
+        sealed class Forbidden : IMotionPlanner{public int calls;public Task<MotionPlan> PlanAsync(MotionRequest r,CancellationToken t){calls++;throw new ProviderException("OpenAI",403);}}
+        [UnityTest] public IEnumerator ForbiddenPlannerFallsBackToTheDeviceParser()
+        {
+            var planner=new Forbidden();brain.planner=planner;brain.Connect();
+            Assert.True(brain.SendText("右手を上げて、変なポーズして"));yield return null;yield return null;
+            Assert.That(planner.calls,Is.EqualTo(1));Assert.True(brain.PlannerBlocked);
+            Assert.True(brain.performer.Busy,"the understood part still runs");Assert.That(brain.performer.Last.steps[0].motion,Is.EqualTo(MotionPreset.custom));
+            brain.performer.Stop();live.Emit("session.output_transcript.delta","はい");brain.Disconnect();live=new Live();brain.Connect();
+            Assert.True(brain.SendText("もっと変なポーズして"));yield return null;yield return null;Assert.That(planner.calls,Is.EqualTo(1),"not retried after 403");
         }
         [UnityTest] public IEnumerator RobotVoiceFollowsTheSetting()
         {

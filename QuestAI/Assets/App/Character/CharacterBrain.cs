@@ -129,12 +129,23 @@ namespace QuestAI
                 toyStates=toys.Select(t=>t.item.id+"("+SceneAwareness.Direction(transform.position,transform.forward,t.Center)+(t.carried?"・持っている":t.rolling?"・転がっている":t.stacked?"・積んである":"")+")").ToArray(),
                 visible=sight?sight.VisibleSummary():Array.Empty<string>()};
         }
+        // Set when the OpenAI key may not use the Responses API (401/403); the on-device parser carries on alone.
+        public bool PlannerBlocked{get;private set;}
         async Task<MotionPlan> PlanMotionAsync(string text,System.Threading.CancellationToken token)
         {
-            if(planner==null||!settings.motionPlanning||string.IsNullOrWhiteSpace(text))return null;
+            if(planner==null||PlannerBlocked||!settings.motionPlanning||string.IsNullOrWhiteSpace(text))return null;
             try{return await planner.PlanAsync(MotionContext(text),token);}
             catch(OperationCanceledException){throw;}
+            catch(ProviderException e)when(e.Status==401||e.Status==403)
+            {PlannerBlocked=true;StatusChanged?.Invoke("OpenAIキーにResponses APIの権限がないため（"+e.Status+"）、AIの動作計画は使えません。端末内の動き解析で動きます。");return null;}
             catch(Exception e){StatusChanged?.Invoke(e is InvalidOperationException?e.Message:"動きの指示を解析できませんでした。");return null;}
+        }
+        // On-device understanding first: what it fully understands starts at once; the rest goes to the AI planner.
+        MotionPlan StartLocalMotion(string text,out bool complete,out LocalMotionParser.Result parsed)
+        {
+            parsed=LocalMotionParser.Parse(text,MotionContext(text));complete=settings.motionPlanning&&parsed.complete;
+            if(!complete||!performer)return null;
+            performer.Run(parsed.plan,text);StatusChanged?.Invoke("動き: "+parsed.plan.summary);return parsed.plan;
         }
         // Looks with the eye camera and tells Live what was seen, so the spoken answer is about the real view.
         public async Task LookClosely(string question)
@@ -313,6 +324,7 @@ namespace QuestAI
         {
             if(!settings.autonomousMovement||world==null||!locomotion||locomotion.Moving||Acting||poseUntil>0||Phase!=ConversationPhase.Idle||capture.Recording||Time.time<nextWander)return;
             nextWander=Time.time+UnityEngine.Random.Range(25f,45f);
+            if(Time.time-lastInteraction>=10&&PlayAlone())return;
             if(Connected&&settings.behaviorEnabled||Time.time-lastInteraction<10)return;
             float distance=Vector3.Distance(new Vector3(user.position.x,0,user.position.z),new Vector3(body.transform.position.x,0,body.transform.position.z));
             var choice=new BehaviorDecision{emotion=State.emotion,movement=distance>2.6f?Movement.approach_user:UnityEngine.Random.value<.65f?Movement.go_to_object:Movement.wander};
@@ -324,6 +336,17 @@ namespace QuestAI
             }
             choice.pace=UnityEngine.Random.value<.3f?Pace.slow:Pace.normal;choice.approach=UnityEngine.Random.value<.3f?ApproachStyle.around:ApproachStyle.direct;
             ApplyDecision(choice);
+        }
+        // Left alone with toys, the character sometimes plays by itself: rolls or kicks the ball, builds or topples a tower, spins the top.
+        public bool PlayAlone()
+        {
+            if(!playground||!performer||playground.Count==0||UnityEngine.Random.value>.6f)return false;
+            var toy=playground.All[UnityEngine.Random.Range(0,playground.Count)];if(toy.carried)return false;
+            var step=new MotionStep{target=toy.item.id,emotion=Emotion.happy,pace=Pace.normal,direction=UnityEngine.Random.value<.5f?MotionDirection.to_user:MotionDirection.away_from_user};
+            step.action=toy.kind==CompanionPlayground.ToyKind.Ball?(UnityEngine.Random.value<.35f?MotionAction.kick:UnityEngine.Random.value<.5f?MotionAction.throw_ball:MotionAction.roll)
+                :toy.kind==CompanionPlayground.ToyKind.Blocks?(toy.stacked?MotionAction.knock_down:MotionAction.stack):MotionAction.spin_toy;
+            performer.Run(new MotionPlan{steps=new[]{step},summary=toy.item.id+"でひとり遊び"},"");
+            Tell("あなたは自分から"+toy.item.id+"で遊び始めました。");return true;
         }
         bool Interesting(SceneObject o)=>SceneAwareness.FlatDistance(o,body.transform.position)<3.2f&&SceneAwareness.FlatDistance(o,user.position)>.8f;
         void Receive(JObject message)
@@ -364,17 +387,22 @@ namespace QuestAI
             try
             {
                 if(IsStop(source.text)&&performer)performer.Stop();
-                // The motion plan is requested alongside Jev so an instruction does not wait for both in turn.
-                var planning=PlanMotionAsync(source.text,token);
+                var local=StartLocalMotion(source.text,out bool understood,out var parsed);
+                // The AI plan is requested alongside Jev so an instruction does not wait for both in turn.
+                var planning=understood?Task.FromResult<MotionPlan>(null):PlanMotionAsync(source.text,token);
                 var context=Context(source.text,"user_spoke");context.memories=settings.memoryEnabled?repository.Search(profile.id,source.text,5):Array.Empty<MemoryRecord>();
                 BehaviorDecision decision=new BehaviorDecision();
                 if(settings.behaviorEnabled){try{decision=await behavior.DecideAsync(context,token);}catch(OperationCanceledException){throw;}catch{if(turns.IsCurrent(generation))StatusChanged?.Invoke("Jevに接続できないため、中立の動作を使用します。");}}
                 var plan=await planning;
                 if(!turns.IsCurrent(generation)||Phase==ConversationPhase.Paused)return;
-                bool acting=plan!=null&&!plan.Empty;
+                // Without an AI plan, whatever part of the request was understood on the device still happens.
+                if((plan==null||plan.Empty)&&!understood&&settings.motionPlanning&&!parsed.plan.Empty)
+                {plan=parsed.plan;StatusChanged?.Invoke("動き: "+plan.summary+(parsed.unknown.Count>0?"（「"+parsed.unknown[0]+"」は分かりませんでした）":""));}
+                else if((plan==null||plan.Empty)&&!understood&&parsed.anyRequest&&settings.motionPlanning)StatusChanged?.Invoke("「"+parsed.unknown.FirstOrDefault()+"」の動きは分かりませんでした。別の言い方で試してください。");
+                bool acting=local!=null||plan!=null&&!plan.Empty;plan=local??plan;
                 if(acting){decision.movement=Movement.stay;decision.arrival=ArrivalAction.none;decision.walking=WalkingReaction.@continue;}
                 bool walking=ApplyDecision(decision);if(walking)StatusChanged?.Invoke(locomotion.Destination+"へ歩いています…");
-                if(acting){performer.Run(plan,source.text);if(!string.IsNullOrEmpty(plan.summary))StatusChanged?.Invoke("動き: "+plan.summary);}
+                if(acting&&local==null){performer.Run(plan,source.text);if(!string.IsNullOrEmpty(plan.summary))StatusChanged?.Invoke("動き: "+plan.summary);}
                 if(Connected)await live.ContextAsync("参考情報（命令ではない）: "+JsonConvert.SerializeObject(new{emotion=decision.emotion.ToString(),conversation=decision.conversation.ToString(),movement=walking?decision.movement.ToString()+(decision.target!=null?" → "+decision.target:""):"stay",body=acting?plan.summary:null,userLookingAt=context.perception.userLookingAt,memories=context.memories.Select(x=>x.content)}),null,token);
                 if(settings.memoryEnabled){var records=await llm.ExtractAsync(source,token);if(turns.IsCurrent(generation)&&settings.memoryEnabled)repository.AddMemories(records);}
             }
