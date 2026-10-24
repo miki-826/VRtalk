@@ -1,8 +1,23 @@
 # Claude Code 引き継ぎ
 
+## 最新のローカル改修（2026-10-24: Uキー・発話・おもちゃ）
+
+ユーザーの依頼: モデルに合う声、Uで話す、物を置いてキャラクターが遊ぶ。Claudeによる歩行・ユーザー動作・ロボ追加は維持。
+
+- CharacterProfile.SpeechInstructions: personalityにモデル別のspeechStyleを付加しLive開始時に送信。旧assetはid別fallback、カスタムモデルはInspectorで指定。声の設定画面でvoiceOverrideを解除できる。
+- XRPointerInput: PCのPTTをSpaceからU長押しへ。UI編集時の抑止は継続。UI外の床クリックはCompanionPlaygroundに渡す。
+- CompanionPlayground: 会話Paused中に床へ最大8個のおもちゃを配置。SceneAwareness.objectsへ登録しNavGridを再構成。経路を持つ接近位置まで歩き、しゃがみ＋軽量おもちゃアニメーション。中断・クリア・画面遷移・Focus/Pauseで停止。オブジェクト／マテリアルを終了時に破棄。
+- UI: いっしょに遊ぶ → おもちゃを置いて遊ぶ。ボール／積み木／回転おもちゃ、次を選ぶ、遊ぶ、停止、片づけ。
+- 配置は現在の部屋セッションだけ。永続保存なし。手指の把持や物理シミュレーションではなく演出。音声だけでおもちゃ遊びを開始する機能は未追加。
+- EditMode53/53、PlayMode13/13成功。Windowsビルドと実行ファイルのsmoke成功。APKビルド・v2署名検証も成功（最新SHA256はVALIDATION.md参照）。
+- APIキーを使う実会話・声の試聴・Quest実機は未検証。MVPの実機完成条件は満たしたとは判定しない。
+- 2026-10-24 文字入力・Jev状態表示を含むAPK/Windows zipでRelease v1.0.0の添付を差し替え済み。ソースのcommit/pushは未実施。
+- 操作手順: PLAYGROUND.md / DESKTOP.md。プレビュー: artifacts/previews/Playground-ball.png。
+
+
 ## 配布: GitHub（2026-10-24）
 
-非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 1CBEC743…A78F）と `VRtalk-Windows.zip`（6ACB7144…60AB）。再ダウンロードしてハッシュ一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
+非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 CD4402BC…9772A）と `VRtalk-Windows.zip`（3A323F51…33CD）。GitHub側のdigest一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
 
 ## 最新: 2026-10-24 Jev行動の細分化・ユーザーの動き — 完了
 

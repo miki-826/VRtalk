@@ -10,8 +10,9 @@ namespace QuestAI
     {
         AppRoot app;Canvas canvas;RectTransform content;Font font;Text status,captions;
         MicrophoneCheck microphoneCheck;
+        Text jevStatus;float nextJevStatus;
         public bool IsEditing { get; private set; }
-        bool secretEditing;Action refreshEdit;
+        bool secretEditing;Action refreshEdit,submitEdit;
         float cursor,captionTime;bool sessionPage;Action returnPage;string editValue;Text editText;
         static readonly Color Ink=new Color(.91f,.94f,.90f),Muted=new Color(.64f,.74f,.70f),Panel=new Color(.045f,.095f,.087f,.97f),Accent=new Color(.88f,.69f,.41f);
         public Canvas Canvas => canvas;
@@ -33,11 +34,12 @@ namespace QuestAI
         }
         void Clear(string eyebrow,string title,string description,bool small=false)
         {
-            IsEditing=false;editValue="";editText=null;refreshEdit=null;
+            IsEditing=false;editValue="";editText=null;refreshEdit=submitEdit=null;Input.imeCompositionMode=IMECompositionMode.Auto;
             if(microphoneCheck)microphoneCheck.Stop();
             foreach(Transform child in content){child.gameObject.SetActive(false);Destroy(child.gameObject);}sessionPage=small;
             TextAt(eyebrow,content,0,0,888,34,21,Accent);TextAt(title,content,0,44,888,80,48,Ink);TextAt(description,content,0,131,888,65,24,Muted);cursor=214;
             status=TextAt("",content,0,853,888,83,23,Accent);Place(small);
+            jevStatus=TextAt("",content,0,815,888,34,19,Muted);nextJevStatus=0;
         }
         void Place(bool small)
         {
@@ -69,20 +71,40 @@ namespace QuestAI
         }
         public void Session()
         {
-            if(app.Brain)app.Brain.Resume();Clear("TOGETHER","声をかけてみよう","接続したら、PTTを押している間だけマイクが送信されます。",true);
+            if(app.Brain)app.Brain.Resume();Clear("TOGETHER","声をかけてみよう","PCはUキーを押して話す。「ジャンプして」「ボールを転がして」など動きも頼めます。",true);
             Button("会話に接続  /  GPT-Live-1",()=>app.Brain?.Connect(),true);
-            var ptt=Button("押して話す  /  PTT",null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
+            var ptt=ButtonAt("押して話す  /  PTT",0,cursor,430,70,null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
+            ButtonAt("文字で話す  ›",454,cursor,434,70,TextChat);cursor+=86;
             ButtonAt("接続を終了",0,cursor,430,64,()=>app.Brain?.Disconnect());ButtonAt("設定",454,cursor,434,64,SettingsMenu);cursor+=84;
             ButtonAt("いっしょに遊ぶ",0,cursor,430,64,Activities);ButtonAt("メインメニューへ",454,cursor,434,64,app.ReturnMenu);cursor+=84;
-            captions=TextAt("",content,0,cursor,888,214,28,Ink);ShowStatus("Aボタン、または画面のPTTボタンで話せます。");
+            captions=TextAt("",content,0,cursor,888,214,28,Ink);ShowStatus("PC: U長押し ／ Quest: Aボタン ／ 画面: PTT長押し");
+        }
+        static readonly string[] QuickPhrases={"うん","ううん","ありがとう","もう一回言って","ちょっと待って"};
+        // Typing for when the user cannot speak: quick phrases send at once, the kana keys build a message. PC keyboards (with IME) also work.
+        public void TextChat()
+        {
+            if(!app.Brain)return;
+            Clear("TEXT","文字で話しかける","声を出せない時用。返事は声と字幕で届きます。PCはキーボード入力・Enterで送信。");
+            editValue="";IsEditing=true;secretEditing=false;returnPage=Session;Input.imeCompositionMode=IMECompositionMode.On;
+            editText=TextAt("",content,10,196,868,74,28,Ink);
+            Action refresh=()=>editText.text=editValue.Length>0?editValue:"（ここに入力した文字が出ます）";refreshEdit=refresh;refresh();submitEdit=()=>SendTyped(editValue);
+            for(int i=0;i<QuickPhrases.Length;i++){string phrase=QuickPhrases[i];ButtonAt(phrase,i*177.6f,278,171,48,()=>SendTyped(phrase));}
+            for(int r=0;r<KanaInput.Rows.Length;r++)for(int i=0;i<KanaInput.Rows[r].Length;i++){string key=KanaInput.Rows[r][i].ToString();ButtonAt(key=="　"?"空白":key,i*88.8f,336+r*52,82.8f,46,()=>{editValue=KanaInput.Press(editValue,key,CharacterBrain.MaxTypedLength);refresh();});}
+            ButtonAt("1文字消す",0,656,270,60,()=>{if(editValue.Length>0)editValue=editValue.Substring(0,editValue.Length-1);refresh();});ButtonAt("すべて消す",290,656,270,60,()=>{editValue="";refresh();});
+            ButtonAt("送信",580,656,308,60,()=>SendTyped(editValue),true);Back(Session);
+        }
+        void SendTyped(string text)
+        {
+            if(string.IsNullOrWhiteSpace(text)){ShowStatus("文字を入力してください。");return;}
+            if(app.Brain&&app.Brain.SendText(text))Session();
         }
         int quizRound,quizScore,topicIndex=-1;
         string JourneyCharacter=>app.Brain?app.Brain.profile.id:app.Settings.characterId;
         void Activities()
         {
             if(!app.Brain)return;
-            app.Brain.Suspend();
-            Clear("PLAY TOGETHER","いっしょに遊ぼう","ここでは通信を停止します。しぐさ遊びはオフラインでも楽しめます。",true);
+            app.Brain.Resume();
+            Clear("PLAY TOGETHER","いっしょに遊ぼう","会話はつながったまま。遊びながら話したり、動きを頼んだりできます。",true);
             Button("手を振ってごあいさつ",()=>{
                 app.Brain.body.Apply(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.wave});
                 var journey=CompanionJourney.Load(app.Repository,JourneyCharacter);bool first=!journey.waved;journey.waved=true;journey.Save(app.Repository,JourneyCharacter);
@@ -90,8 +112,24 @@ namespace QuestAI
             });
             Button("しぐさクイズ  /  全3問",()=>{quizRound=quizScore=0;Quiz();});
             Button("会話のお題を引く",TopicCard);
+            Button("おもちゃを置いて遊ぶ",Playground);
             Button("交流スタンプを見る",()=>{Clear("COLLECTION","ふたりの交流スタンプ","スタンプはキャラクターごとに保存されます。",true);Note(CompanionJourney.Load(app.Repository,JourneyCharacter).Summary(),350);Back(Activities);});
             Back(Session);
+        }
+        public void Playground()
+        {
+            if(!app.Brain)return;app.Brain.Resume();
+            Clear("ROOM PLAY","置いて、頼んで、遊ぼう","会話はつながったまま。「ボールをこっちに転がして」「積み木を積んで」と声や文字で頼めます。",true);
+            var play=app.Brain.playground;if(!play)return;play.Status=ShowStatus;
+            ButtonAt("ボールを置く",0,cursor,280,70,()=>play.BeginPlacement(CompanionPlayground.ToyKind.Ball));
+            ButtonAt("積み木を置く",300,cursor,280,70,()=>play.BeginPlacement(CompanionPlayground.ToyKind.Blocks));
+            ButtonAt("回転おもちゃ",600,cursor,288,70,()=>play.BeginPlacement(CompanionPlayground.ToyKind.Spinner));cursor+=86;
+            Note("床をクリックで配置。置いたおもちゃをクリックすると自分で転がす・崩す・回せます。",70);
+            ButtonAt("選んだ物で遊ぶ",0,cursor,430,70,()=>play.PlaySelected(),true);ButtonAt("次のおもちゃを選ぶ",454,cursor,434,70,play.Next);cursor+=86;
+            var ptt=ButtonAt("押して話す  /  PTT",0,cursor,430,70,null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
+            ButtonAt("文字で話す  ›",454,cursor,434,70,TextChat);cursor+=86;
+            ButtonAt("動きを止める",0,cursor,430,64,()=>{play.Cancel();ShowStatus("止めました。");});ButtonAt("すべて片づける",454,cursor,434,64,play.ClearToys);
+            Back(Activities);ShowStatus("選択: "+play.SelectedName);
         }
         void TopicCard()
         {
@@ -152,12 +190,20 @@ namespace QuestAI
                     Button("マイク・再生を確認（4秒）",()=>{if(!microphoneCheck)microphoneCheck=gameObject.AddComponent<MicrophoneCheck>();microphoneCheck.Begin(app.Settings.voiceVolume,ShowStatus);});Note("録音してその場で再生します。外部送信・ファイル保存は行いません。",90);break;
                 case 2:
                     EditButton("Live音声（空欄でキャラ既定）",app.Settings.voiceOverride,v=>app.Settings.voiceOverride=v);
-                    Button("音量: "+Mathf.RoundToInt(app.Settings.voiceVolume*100)+"%",()=>{app.Settings.voiceVolume=app.Settings.voiceVolume>=.99f?0:Mathf.Min(1,app.Settings.voiceVolume+.1f);app.SaveSettings();SettingsPage(page);});Note("既定の声: marin / gleam\n声の変更は次回接続時に反映します。",95);break;
-                case 3:Button("視線の追従: "+Mathf.RoundToInt(app.Settings.lookStrength*100)+"%",()=>{app.Settings.lookStrength=app.Settings.lookStrength>=1?0:app.Settings.lookStrength+.25f;app.SaveSettings();SettingsPage(page);});Note("HMDの方向で注視を判定します。瞬き・呼吸・口パクは端末内で動きます。",110);break;
+                    Button("モデルに合う声へ戻す",()=>{app.Settings.voiceOverride="";app.SaveSettings();SettingsPage(page);});
+                    Button("音量: "+Mathf.RoundToInt(app.Settings.voiceVolume*100)+"%",()=>{app.Settings.voiceVolume=app.Settings.voiceVolume>=.99f?0:Mathf.Min(1,app.Settings.voiceVolume+.1f);app.SaveSettings();SettingsPage(page);});
+                    Button("ロボット声: "+new[]{"ロボのみ","全員","OFF"}[Mathf.Clamp(app.Settings.robotVoice,0,2)],()=>{app.Settings.robotVoice=(Mathf.Clamp(app.Settings.robotVoice,0,2)+1)%3;app.SaveSettings();SettingsPage(page);});
+                    Note("既定の声: marin / gleam\n声の変更は次回接続時、ロボット声はすぐ反映します。",95);break;
+                case 3:Button("視線の追従: "+Mathf.RoundToInt(app.Settings.lookStrength*100)+"%",()=>{app.Settings.lookStrength=app.Settings.lookStrength>=1?0:app.Settings.lookStrength+.25f;app.SaveSettings();SettingsPage(page);});Note("HMDの方向で注視を判定します。瞬き・呼吸・口パクは端末内で動きます。",70);
+                    Button("指示どおりに動く: "+(app.Settings.motionPlanning?"ON":"OFF"),()=>{app.Settings.motionPlanning=!app.Settings.motionPlanning;app.SaveSettings();SettingsPage(page);});
+                    Button("視覚（見えた物に反応）: "+(app.Settings.vision?"ON":"OFF"),()=>{app.Settings.vision=!app.Settings.vision;app.SaveSettings();SettingsPage(page);});
+                    Button("目で見て説明（画像をOpenAIへ）: "+(app.Settings.visionImages?"ON":"OFF"),()=>{app.Settings.visionImages=!app.Settings.visionImages;app.SaveSettings();SettingsPage(page);});
+                    Note("指示の動作計画と「目で見て説明」はOpenAIキーを使用します。",62);break;
                 case 4:
                     EditButton("Jev API Key","",v=>app.Secrets.Set("Jev",v),true);EditButton("Jevモデル",app.Settings.behaviorModel,v=>app.Settings.behaviorModel=v);
-                    Button("Jev反応: "+(app.Settings.behaviorEnabled?"ON":"OFF"),()=>{app.Settings.behaviorEnabled=!app.Settings.behaviorEnabled;app.SaveSettings();SettingsPage(page);});Button("Jev接続テスト",()=>app.TestProvider("Jev"));
-                    Button("部屋の中を歩き回る: "+(app.Settings.autonomousMovement?"ON":"OFF"),()=>{app.Settings.autonomousMovement=!app.Settings.autonomousMovement;app.SaveSettings();SettingsPage(page);});Note("家具の配置を読み取り、Jevの判断や待機中の気まぐれで歩き、座る・しゃがむ・指さすをします。手を振る・指さす・しゃがむ動きにも反応します（PC: H / F / C キー）。",110);break;
+                    Button("Jev利用設定: "+(app.Settings.behaviorEnabled?"ON（認証状態は下部）":"OFF"),()=>{app.Settings.behaviorEnabled=!app.Settings.behaviorEnabled;app.SaveSettings();SettingsPage(page);});Button("Jev接続テスト",()=>app.TestProvider("Jev"));
+                    Button("ローカル散歩: "+(app.Settings.autonomousMovement?"ON":"OFF"),()=>{app.Settings.autonomousMovement=!app.Settings.autonomousMovement;app.SaveSettings();SettingsPage(page);});
+                    Note("散歩・しぐさ・おもちゃはキーなしでも動きます。Jevの認証とは別です。指示どおりの動き・視覚は「キャラクター」設定。",88);break;
                 case 5:
                     Button("会話・記憶の保存: "+(app.Settings.memoryEnabled?"ON":"OFF"),()=>{app.Settings.memoryEnabled=!app.Settings.memoryEnabled;app.SaveSettings();SettingsPage(page);});
                     Note("保存済みの会話・好み・出来事は、選択したキャラクターだけが参照します。OFF中は新しい会話を保存しません。",120);
@@ -167,7 +213,7 @@ namespace QuestAI
                     Button("表示サイズ: "+Mathf.RoundToInt(app.Settings.uiScale*100)+"%",()=>{app.Settings.uiScale=app.Settings.uiScale>1.2f?.8f:app.Settings.uiScale+.1f;app.SaveSettings();SettingsPage(page);});
                     Button("時間帯: "+TimeLabel(app.Settings.timeMode),()=>{app.Settings.timeMode=(TimeMode)(((int)app.Settings.timeMode+1)%5);app.SaveSettings();SettingsPage(page);});Button("パネルを目の前へ",Recenter);break;
                 case 7:
-                    Note("音声はOpenAIへ、文字と状態はOpenAI／Jevへ送信します。録音音声は端末へ保存しません。",112);
+                    Note("音声はOpenAIへ、文字と状態はOpenAI／Jevへ送信します。「目で見て説明」ではキャラクター視点のCG画像をOpenAIへ送ります。録音音声は端末へ保存しません。",112);
                     Note("Live接続は終了操作・一時停止・120秒の無操作で切断します。利用料金は接続時間などに応じて発生します。",112);
                     Button("APIキーをすべて削除",()=>Confirm("保存済みのAPIキーを削除します。",app.DeleteKeys,()=>SettingsPage(page)));
                     Button("全ローカルデータを削除",()=>Confirm("会話・記憶・設定・APIキーを削除します。",app.DeleteAllData,MainMenu));break;
@@ -198,14 +244,38 @@ namespace QuestAI
         public void SetCaptions(string input,string output){captionTime=Time.time;if(captions)captions.text=app.Settings.subtitles==SubtitleMode.Off?"":(output.Length>0?output:input);}
         void Update()
         {
+            if(jevStatus&&app.JevStatus!=null&&Time.unscaledTime>=nextJevStatus){nextJevStatus=Time.unscaledTime+.5f;jevStatus.text=app.JevStatus.Label+(app.Settings.behaviorEnabled?"":" / 自動判断OFF");}
             if(captions&&app.Settings.subtitles==SubtitleMode.Minimal&&Time.time-captionTime>8)captions.text="";
 #if UNITY_EDITOR || UNITY_STANDALONE
             if(!IsEditing)return;
             bool command=Input.GetKey(KeyCode.LeftControl)||Input.GetKey(KeyCode.RightControl)||Input.GetKey(KeyCode.LeftCommand)||Input.GetKey(KeyCode.RightCommand);
             if(command){if(Input.GetKeyDown(KeyCode.V))PasteText(GUIUtility.systemCopyBuffer);return;}
-            foreach(char c in Input.inputString){if(c=='\b'){if(editValue.Length>0)editValue=editValue.Substring(0,editValue.Length-1);}else if(!char.IsControl(c)&&editValue.Length<4096&&(!secretEditing||!char.IsWhiteSpace(c)))editValue+=c;}
+            foreach(char c in Input.inputString){if((c=='\r'||c=='\n')&&submitEdit!=null){submitEdit();return;}if(c=='\b'){if(editValue.Length>0)editValue=editValue.Substring(0,editValue.Length-1);}else if(!char.IsControl(c)&&editValue.Length<4096&&(!secretEditing||!char.IsWhiteSpace(c)))editValue+=c;}
             refreshEdit?.Invoke();
 #endif
+        }
+    }
+    // Hiragana keys with voiced, semi-voiced and small-kana modifiers applied to the last character.
+    public static class KanaInput
+    {
+        public static readonly string[] Rows={"あかさたなはまやらわ","いきしちにひみゆりを","うくすつぬふむよるん","えけせてねへめ、れー","おこそとのほも。ろ？","゛゜小！〜　"};
+        const string Plain="かきくけこさしすせそたちつてとはひふへほう",Voiced="がぎぐげござじずぜぞだぢづでどばびぶべぼゔ",Half="はひふへほ",HalfVoiced="ぱぴぷぺぽ",Large="あいうえおつやゆよわ",Small="ぁぃぅぇぉっゃゅょゎ";
+        public static string Press(string value,string key,int max)
+        {
+            if(key=="゛"||key=="゜"||key=="小")
+            {
+                if(value.Length==0)return value;char last=value[value.Length-1],next=Modify(last,key);
+                return next==last?value:value.Substring(0,value.Length-1)+next;
+            }
+            return value.Length<max?value+key:value;
+        }
+        static char Modify(char c,string key)
+        {
+            int i;
+            if(key=="゛"){if((i=Plain.IndexOf(c))>=0)return Voiced[i];if((i=Voiced.IndexOf(c))>=0)return Plain[i];if((i=HalfVoiced.IndexOf(c))>=0)return Voiced[Plain.IndexOf(Half[i])];}
+            else if(key=="゜"){if((i=Half.IndexOf(c))>=0)return HalfVoiced[i];if((i=HalfVoiced.IndexOf(c))>=0)return Half[i];if((i=Voiced.IndexOf(c))>=0&&(i=Half.IndexOf(Plain[i]))>=0)return HalfVoiced[i];}
+            else{if((i=Large.IndexOf(c))>=0)return Small[i];if((i=Small.IndexOf(c))>=0)return Large[i];}
+            return c;
         }
     }
     public class HoldToTalk : MonoBehaviour,IPointerDownHandler,IPointerUpHandler

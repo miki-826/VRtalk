@@ -52,7 +52,15 @@ namespace QuestAI
         {
             switch(gesture){case Gesture.wave:return "Wave";case Gesture.nod:case Gesture.big_nod:return "Yes";case Gesture.shrug:return "No";case Gesture.laugh:return "Jump";default:return null;}
         }
-        public void ResetPose() { decision=new BehaviorDecision();mouth=0;StopSpeech();SetPose(Pose.stand,null); }
+        public void ResetPose() { decision=new BehaviorDecision();mouth=0;StopSpeech();SetPose(Pose.stand,null);ClearMotion(); }
+        // Changes only the expression, keeping the current gaze and any running motion.
+        public void SetEmotion(Emotion emotion){decision=new BehaviorDecision{emotion=emotion,gaze=decision.gaze};}
+        public Emotion CurrentEmotion => decision.emotion;
+        // A whole-body keyframe (MotionPerformer) layered on top of everything else; null when no motion runs.
+        MotionKey motion;
+        public MotionKey Motion => motion;
+        public void SetMotion(MotionKey key)=>motion=key;
+        public void ClearMotion()=>motion=null;
         public void SetPose(Pose pose,Vector3? target){CurrentPose=pose;poseTarget=target;}
         public void Play(SpeechAudio data,float volume)
         {
@@ -125,7 +133,7 @@ namespace QuestAI
                     if(!proceduralGesture||decision.gesture!=Gesture.shrug)Swing(rig.leftArm,-s*.7f);
                 }
             }
-            ApplyPose();
+            ApplyPose();ApplyMotion();
             if(t>=nextBlink){blinkStarted=t;nextBlink=t+Random.Range(2.2f,5.5f);}
             float blinkAge=t-blinkStarted,blink=blinkAge<.18f?Mathf.Sin(blinkAge/.18f*Mathf.PI)*100:0;
             float volume=0;if(IsSpeaking){voice.GetOutputData(audio,0);foreach(var sample in audio)volume+=sample*sample;volume=Mathf.Clamp01(Mathf.Sqrt(volume/audio.Length)*9);}
@@ -161,6 +169,28 @@ namespace QuestAI
                     }
                     break;
             }
+        }
+        // Rotations are about the character's own axes, so one keyframe means the same thing on every rig.
+        void ApplyMotion()
+        {
+            if(motion==null)return;var m=motion;Vector3 r=transform.right,u=transform.up,f=transform.forward;
+            if(rig.hips&&(m.lift!=0||m.hips_drop!=0)){rig.hips.position+=u*(m.lift-HipHeight*.5f*m.hips_drop);hipsWritten=rig.hips.localPosition;}
+            Turn(rig.chest,Quaternion.AngleAxis(m.chest_yaw,u)*Quaternion.AngleAxis(m.chest_pitch,r)*Quaternion.AngleAxis(-m.chest_roll,f));
+            Turn(rig.head,Quaternion.AngleAxis(m.head_yaw,u)*Quaternion.AngleAxis(m.head_pitch,r)*Quaternion.AngleAxis(-m.head_roll,f));
+            Arm(rig.leftArm,rig.leftForearm,m.left_arm_up,m.left_arm_out,m.left_elbow,-1);Arm(rig.rightArm,rig.rightForearm,m.right_arm_up,m.right_arm_out,m.right_elbow,1);
+            Leg(rig.leftLeg,rig.leftKnee,m.left_leg,m.left_knee);Leg(rig.rightLeg,rig.rightKnee,m.right_leg,m.right_knee);
+        }
+        static void Turn(Transform bone,Quaternion rotation){if(bone)bone.rotation=rotation*bone.rotation;}
+        // Out raises the arm sideways (about the forward axis, mirrored per side); up swings it forward and overhead.
+        void Arm(Transform upper,Transform lower,float up,float outward,float elbow,float side)
+        {
+            if(upper)upper.rotation=Quaternion.AngleAxis(-up,transform.right)*Quaternion.AngleAxis(side*outward,transform.forward)*upper.rotation;
+            if(lower)lower.rotation=Quaternion.AngleAxis(-elbow,transform.right)*lower.rotation;
+        }
+        void Leg(Transform upper,Transform knee,float lift,float bend)
+        {
+            if(upper)upper.rotation=Quaternion.AngleAxis(-lift,transform.right)*upper.rotation;
+            if(knee)knee.rotation=Quaternion.AngleAxis(bend,transform.right)*knee.rotation;
         }
         readonly Dictionary<string,float> shapeWeights=new Dictionary<string,float>();
         // Mapped shapes ease toward their target so expression changes do not pop.

@@ -57,6 +57,9 @@ namespace QuestAI
         static string Brief(string content)=>content.Length>350?content.Substring(0,350):content;
         public Task ContextAsync(string content,string delegationId,CancellationToken token)=>SendAsync(new{type="session.thinking.append",event_id=Guid.NewGuid().ToString("N"),delegation_id=delegationId,content=Brief(content)},token);
         public Task AnswerAsync(string content,string delegationId,CancellationToken token)=>SendAsync(new{type="session.commentary.append",event_id=Guid.NewGuid().ToString("N"),delegation_id=delegationId,content=Brief(content)},token);
+        // GPT-Live has no typed user turn, so typed input goes in as an instruction to answer it aloud.
+        public static string TypedInstruction(string text)=>"ユーザーは声を出せないため、次の発言を文字で入力しました。これをユーザーの発言として扱い、いつも通り声で短く返答してください。入力文を読み上げ直さないでください。ユーザーの入力: 「"+text+"」";
+        public Task TextAsync(string text,CancellationToken token)=>SendAsync(new{type="session.instructions.append",event_id=Guid.NewGuid().ToString("N"),delegation_id=(string)null,content=TypedInstruction(text)},token);
         async Task ReceiveAsync()
         {
             var buffer=new byte[32768];

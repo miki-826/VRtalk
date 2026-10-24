@@ -20,6 +20,7 @@ namespace QuestAI
         public AppSettings Settings { get; private set; }
         public IMemoryRepository Repository { get; private set; }
         public ISecretStore Secrets { get; private set; }
+        public BehaviorConnectionStatus JevStatus { get; private set; }
         public CharacterBrain Brain { get; private set; }
         public Transform Head { get; private set; }
         public WorldUI UI { get; private set; }
@@ -46,6 +47,7 @@ namespace QuestAI
 #endif
 #endif
                 Settings=JsonConvert.DeserializeObject<AppSettings>(Repository.Load("settings")??"null")??new AppSettings();
+                JevStatus=new BehaviorConnectionStatus(()=>Secrets.Get("Jev"),()=>Settings.behaviorModel);
                 Settings.voiceVolume=Mathf.Clamp01(Settings.voiceVolume);Settings.lookStrength=Mathf.Clamp01(Settings.lookStrength);Settings.uiScale=Mathf.Clamp(Settings.uiScale,.8f,1.3f);
                 characters=Resources.LoadAll<CharacterProfile>("Profiles").OrderBy(x=>x.id).ToArray();environments=Resources.LoadAll<EnvironmentProfile>("Profiles").OrderBy(x=>x.id).ToArray();
                 CreateRig();Body=gameObject.AddComponent<UserBodyTracker>();Body.head=Head;Body.trackingSpace=TrackingSpace;UI=gameObject.AddComponent<WorldUI>();UI.Initialize(this);gameObject.AddComponent<XRPointerInput>().Initialize(this);
@@ -104,7 +106,8 @@ namespace QuestAI
                 var body=avatar.GetComponent<BodySystem>();body.user=Head;
                 var locomotion=avatar.AddComponent<CharacterLocomotion>();locomotion.world=world;locomotion.user=Head;
                 Brain=avatar.AddComponent<CharacterBrain>();Brain.profile=profile;Brain.body=body;Brain.user=Head;Brain.environment=environment.displayName;Brain.world=world;Brain.locomotion=locomotion;Brain.tracker=Body;Body.world=world;Brain.settings=Settings;Brain.repository=Repository;Brain.secrets=Secrets;
-                var transport=new ApiTransport(Secrets);var openAI=new OpenAIProvider(transport,Settings);Brain.stt=openAI;Brain.llm=openAI;Brain.tts=openAI;Brain.behavior=new JevBehaviorProvider(transport,Settings);
+                var transport=new ApiTransport(Secrets);var openAI=new OpenAIProvider(transport,Settings);Brain.stt=openAI;Brain.llm=openAI;Brain.tts=openAI;Brain.behavior=JevStatus.Observe(new JevBehaviorProvider(transport,Settings));
+                var planner=new OpenAIMotionPlanner(transport,Settings);Brain.planner=planner;Brain.vision=planner;
                 string session=save?.sessionId??Guid.NewGuid().ToString("N");
                 Brain.Initialize(save?.state??JsonConvert.DeserializeObject<CharacterState>(Repository.Load("state:"+profile.id)??"null"),session);
                 Repository.Save("character:"+profile.id,JsonConvert.SerializeObject(new{id=profile.id,name=profile.displayName}));Repository.Save("session:"+session,JsonConvert.SerializeObject(new{character=profile.id,environment=environment.id,started=DateTimeOffset.UtcNow.ToUnixTimeSeconds()}));
@@ -144,7 +147,7 @@ namespace QuestAI
             try
             {
                 var transport=new ApiTransport(Secrets);var context=new DialogueContext{text="こんにちは",personality="短く挨拶する",character=new CharacterState(),perception=new PerceptionSnapshot()};
-                if(provider=="Jev")await new JevBehaviorProvider(transport,Settings).DecideAsync(context,token);
+                if(provider=="Jev")await JevStatus.Observe(new JevBehaviorProvider(transport,Settings)).DecideAsync(context,token);
                 else {using var connection=new GPTLiveProvider();await connection.ConnectAsync(Secrets.Get("OpenAI"),GPTLiveProvider.StartMessage(Settings.voiceModel,"marin","接続確認。発話せず待つ。",Array.Empty<MessageRecord>()),token);await connection.CloseAsync();}
                 token.ThrowIfCancellationRequested();UI.ShowStatus(provider+"接続成功");
             }catch(OperationCanceledException){}catch(Exception e){if(!token.IsCancellationRequested)UI.ShowStatus(CharacterBrain.SafeError(e));}

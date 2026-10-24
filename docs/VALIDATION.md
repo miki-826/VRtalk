@@ -1,5 +1,28 @@
 # 検証結果
 
+## 最新: 2026-10-24 指示どおりの動き・視覚・ロボット声
+
+- EditMode **69/69成功**: `artifacts/EditMode-20261024-171156.xml`。新規MotionTests（計画の解析と不正値除去、スキーマ、停止語、プリセット、ロボット声、視野と遮蔽、ボール物理）。
+- PlayMode **18/18成功**: `artifacts/PlayMode-20261024-171241.xml`。新規: ボールを出してユーザーへ転がす→視野内外の判定→積み木5段→崩す→持ってくる→目のカメラ画像、腕上げ・ジャンプ・一回転・右90°・前進・追従と停止、指示文から計画→実行中はJevが体を動かさない、ロボット声の設定反映。画像 `artifacts/previews/Motion-arms-up.png`、`Play-blocks-stacked.png`、`Vision-eye.jpg`。
+
+## 最新: 2026-10-24 文字入力・Jev状態表示
+
+- EditMode **61/61成功**: `artifacts/EditMode-20261024-162800.xml`。新規TextInputTests（゛゜小の変換、200文字上限、送信指示に入力文を含む）とJev状態表示。
+- PlayMode **14/14成功**: `artifacts/PlayMode-20261024-162916.xml`。新規: 未接続から文字送信→接続後に送信、二重送信の拒否、ユーザー発言→返答の順で保存、200文字への切り詰め。
+- APKビルド成功: `QuestAI/Builds/WhiteRoom-Quest3S.apk`（167,603,007 bytes）。SHA256: `CD4402BC212E576B3263FF35D15E40BC3D2A1B7DD0A9431E005D7D2D5FF9772A`。今回は署名の再検証を実施していない。
+- Windowsビルド成功（`artifacts/windows-build-report.txt`）、`--desktop-smoke` 終了コード0・`DESKTOP_SMOKE_OK`（`artifacts/windows-smoke.log`）。
+- 実APIで文字入力に声で返答するか、Questでのひらがなキー操作性は未確認。
+
+## 最新: 2026-10-24 モデル別発話・Uキー・配置遊び
+
+- EditMode **53/53成功**: `artifacts/EditMode-20261024-155258.xml`。配置の家具・壁・人・他おもちゃとの重なり拒否、モデル別発話指示／カスタム上書き。
+- PlayMode **13/13成功**: `artifacts/PlayMode-20261024-155436.xml`。新規: 実部屋へのボール配置、接近・遊び、再操作のキャンセル、片づけ後の物件登録復元。画像 `artifacts/previews/Playground-ball.png`。
+- Windowsビルド成功: `artifacts/windows-build-report.txt`。実行ファイルの `--desktop-smoke` 終了コード0、`DESKTOP_SMOKE_OK`。キー・ネットワーク・実マイクを使わない起動確認。
+- APKビルド成功、署名v2検証成功: `QuestAI/Builds/WhiteRoom-Quest3S.apk`（167,586,811 bytes）。SHA256: `FC04D43117C12C9A1DF6E59A102F87DD8794D7B04CCD47397CE8611AAC1A7BF5`。
+- 実際の声の試聴、Uキーを使う実マイク会話、Questでのポインター配置と動作負荷は未実施。
+- 最新の改修はローカルのみ。以前のGitHub Releaseは更新していない。
+
+
 ## 最新: 2026-10-24 Jev行動の細分化・ユーザーの動き
 
 - EditMode51/51: `artifacts/EditMode-20261024-140010.xml`（新Jev項目の既定値・不正値、しゃがみ/立ち上がり、手振り、指さしの保持時間・PCキー）。

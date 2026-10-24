@@ -44,7 +44,7 @@ namespace QuestAI
             // A script reload during Play mode keeps the Unity object references but drops these plain C# objects.
             if(pointer==null||!events){if(!events)events=FindFirstObjectByType<EventSystem>();if(!events)return;pointer=new PointerEventData(events);controller=new ControllerInputProvider(app.TrackingSpace);hands=new HandInputProvider();}
 #if UNITY_EDITOR || UNITY_STANDALONE
-            ray=app.Head.GetComponent<Camera>().ScreenPointToRay(Input.mousePosition);pressed=Input.GetMouseButton(0);valid=true;bool ptt=Input.GetKey(KeyCode.Space);
+            ray=app.Head.GetComponent<Camera>().ScreenPointToRay(Input.mousePosition);pressed=Input.GetMouseButton(0);valid=true;bool ptt=Input.GetKey(KeyCode.U);
             if(!app.UI.IsEditing&&app.Brain)WalkDesktop();
             if(Input.GetMouseButton(1)){app.Head.Rotate(-Input.GetAxis("Mouse Y")*2,Input.GetAxis("Mouse X")*2,0);var angles=app.Head.eulerAngles;app.Head.rotation=Quaternion.Euler(angles.x,angles.y,0);}
 #else
@@ -70,6 +70,7 @@ namespace QuestAI
                 point=ray.GetPoint(distance);Vector2 screen=canvas.worldCamera.WorldToScreenPoint(point);pointer.position=screen;events.RaycastAll(pointer,hits);if(hits.Count>0){target=hits[0].gameObject;pointer.pointerCurrentRaycast=hits[0];}
             }
             line.enabled=valid;line.SetPosition(0,ray.origin);line.SetPosition(1,point);
+            if(valid&&pressed&&!previous&&!target&&app.Brain)app.Brain.GetComponent<CompanionPlayground>()?.PlaceFromRay(ray);
             if(hovered!=target){if(hovered)ExecuteEvents.ExecuteHierarchy(hovered,pointer,ExecuteEvents.pointerExitHandler);hovered=target;if(hovered)ExecuteEvents.ExecuteHierarchy(hovered,pointer,ExecuteEvents.pointerEnterHandler);}
             if(pressed&&!previous&&target){pointer.pressPosition=pointer.position;pointer.pointerPressRaycast=pointer.pointerCurrentRaycast;pressedTarget=ExecuteEvents.ExecuteHierarchy(target,pointer,ExecuteEvents.pointerDownHandler);if(!pressedTarget)pressedTarget=ExecuteEvents.GetEventHandler<IPointerClickHandler>(target);pointer.pointerPress=pressedTarget;}
             if((!pressed||!valid)&&previous&&pressedTarget){ExecuteEvents.Execute(pressedTarget,pointer,ExecuteEvents.pointerUpHandler);var click=target?ExecuteEvents.GetEventHandler<IPointerClickHandler>(target):null;if(pressedTarget==click)ExecuteEvents.Execute(pressedTarget,pointer,ExecuteEvents.pointerClickHandler);pressedTarget=null;pointer.pointerPress=null;}

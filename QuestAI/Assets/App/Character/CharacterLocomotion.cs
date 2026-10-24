@@ -16,6 +16,8 @@ namespace QuestAI
         public bool Moving => path != null;
         public bool Seated => seat.HasValue;
         public string Destination { get; private set; }
+        // While a performed motion turns the body itself, idle facing must not pull it back toward the user.
+        public bool Frozen;
         List<Vector3> path; int index; Vector3? face; Action<bool> done; float stuckTime; Vector3 lastPosition; bool turning;
         Vector3? seat; Vector3 standSpot; float perch; float seatHeight;
 
@@ -90,7 +92,7 @@ namespace QuestAI
             {
                 PaceScale = 1;
                 Vector3? point = face ?? (user ? user.position : (Vector3?)null);
-                if (point.HasValue)
+                if (point.HasValue && !Frozen)
                 {
                     var delta = point.Value - transform.position; delta.y = 0;
                     float off = delta.sqrMagnitude > .01f ? Mathf.Abs(Mathf.DeltaAngle(transform.eulerAngles.y, Yaw(delta))) : 0;
