@@ -1,0 +1,38 @@
+C:\Users\micke\Desktop\Codex\hand beats\artifacts\chibi\create_chibi.py:17: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  m=bpy.data.materials.new(name); m.diffuse_color=(*color,1); m.use_nodes=True
+情報: 「white_chibi.blend」で保存しました
+INFO Draco is available, use library at C:\Program Files\Blender Foundation\Blender 5.2\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_draco_bridge.dll
+INFO MeshOptimizer is available, use library at C:\Program Files\Blender Foundation\Blender 5.2\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_meshopt_bridge.dll
+16:22:19 | INFO: Starting glTF 2.0 export
+16:22:20 | INFO: Extracting primitive: 球
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: Brow.L
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: Brow.R
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.013
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.014
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.015
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.017
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.012
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: Smile
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: Smile • tongue
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.016
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Extracting primitive: 球.018
+16:22:20 | INFO: Primitives created: 1
+16:22:20 | INFO: Finished glTF 2.0 export in 0.9357450008392334 s
+00:25.782  render           | Saved: 'C:\Users\micke\Desktop\Codex\hand beats\artifacts\chibi\chibi_preview.png'
+00:47.797  render           | Saved: 'C:\Users\micke\Desktop\Codex\hand beats\artifacts\chibi\chibi_front.png'
+
+CHIBI_COMPLETE
+Blender 5.2.1 LTS (hash 9e2066aef7ef built 2026-08-25 02:38:20)
+
+Blender quit

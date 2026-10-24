@@ -1,0 +1,7 @@
+{
+  "name": "QuestAI.PlayTests",
+  "references": ["QuestAI.Runtime", "Unity.ugui"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "overrideReferences": true,
+  "precompiledReferences": ["Newtonsoft.Json.dll", "nunit.framework.dll"]
+}

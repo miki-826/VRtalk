@@ -1,0 +1,5 @@
+C:/Users/micke/Desktop/Codex/VibeCodingclub/VR/QuestAI/.utmp/RelWithDebInfo/1z3i164l/arm64-v8a/CMakeFiles/edit_cache.dir
+C:/Users/micke/Desktop/Codex/VibeCodingclub/VR/QuestAI/.utmp/RelWithDebInfo/1z3i164l/arm64-v8a/CMakeFiles/rebuild_cache.dir
+C:/Users/micke/Desktop/Codex/VibeCodingclub/VR/QuestAI/.utmp/RelWithDebInfo/1z3i164l/arm64-v8a/FramePacing/CMakeFiles/swappywrapper.dir
+C:/Users/micke/Desktop/Codex/VibeCodingclub/VR/QuestAI/.utmp/RelWithDebInfo/1z3i164l/arm64-v8a/FramePacing/CMakeFiles/edit_cache.dir
+C:/Users/micke/Desktop/Codex/VibeCodingclub/VR/QuestAI/.utmp/RelWithDebInfo/1z3i164l/arm64-v8a/FramePacing/CMakeFiles/rebuild_cache.dir

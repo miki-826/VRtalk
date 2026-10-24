@@ -1,0 +1,16 @@
+{
+  "name": "QuestAI.Runtime",
+  "references": [
+    "Unity.ugui",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.XR.Hands",
+    "Unity.XR.Management",
+    "Unity.XR.OpenXR",
+    "Unity.InputSystem",
+    "Oculus.VR",
+    "Oculus.Interaction",
+    "Meta.XR.Audio"
+  ],
+  "autoReferenced": true
+}

@@ -1,0 +1,3 @@
+Models from Poly Haven (https://polyhaven.com), CC0 1.0 Universal. Assets: sofa_03, mid_century_lounge_chair, modern_coffee_table_01, wooden_display_shelves_01, potted_plant_02, potted_plant_04, GothicBed_01, ClassicNightstand_01, vintage_oil_lamp, modern_wooden_cabinet, GreenChair_01, round_wooden_table_01, book_encyclopedia_set_01, throw_pillows_01, ceramic_vase_01, dining_chair_02, round_wooden_table_02, modern_arm_chair_01, potted_plant_01
+Tree impostor sources (../Trees, editor only): fir_sapling, tree_small_02
+../snowy_forest_path_01_panorama.jpg: HDRI 'Snowy Forest Path 01' (tonemapped JPG). ../Textures: poly_wool_herringbone, bark_brown_02. All CC0 1.0.

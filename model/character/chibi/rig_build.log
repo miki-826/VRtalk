@@ -1,0 +1,23 @@
+00:01.500  blend            | Read blend: "C:\Users\micke\Desktop\Codex\hand beats\artifacts\chibi\white_chibi.blend"
+00:18.406  render           | Saved: 'C:\Users\micke\Desktop\Codex\hand beats\artifacts\chibi\rig_pose_check.png'
+情報: 内部画像にベイクマップを保存しました．外部ファイルに保存，またはパックしてください
+
+FBX export starting... 'C:\\Users\\micke\\Desktop\\Codex\\hand beats\\artifacts\\chibi\\UnityReady\\Assets\\WhiteChibi\\WhiteChibi.fbx'
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+(bpy.data.armatures['WhiteChibi_Skeleton'], 'POSE')
+export finished in 0.1305 sec.
+情報: 「white_chibi_rigged.blend」で保存しました
+RIG_COMPLETE {'bone_count': 22, 'mesh_count': 12, 'vertices': 36900, 'unweighted_vertices': 0, 'max_influences': 4, 'height_m': 1.1}
+Blender 5.2.1 LTS (hash 9e2066aef7ef built 2026-08-25 02:38:20)
+
+Blender quit
