@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -131,13 +132,13 @@ namespace QuestAI
         }
         // Set when the OpenAI key may not use the Responses API (401/403); the on-device parser carries on alone.
         public bool PlannerBlocked{get;private set;}
-        async Task<MotionPlan> PlanMotionAsync(string text,System.Threading.CancellationToken token)
+        async Task<MotionPlan> PlanMotionAsync(string text,System.Threading.CancellationToken token,IReadOnlyList<string> history=null)
         {
             if(planner==null||PlannerBlocked||!settings.motionPlanning||string.IsNullOrWhiteSpace(text))return null;
-            try{return await planner.PlanAsync(MotionContext(text),token);}
+            try{var request=MotionContext(text);request.history=history??Array.Empty<string>();return await planner.PlanAsync(request,token);}
             catch(OperationCanceledException){throw;}
             catch(ProviderException e)when(e.Status==401||e.Status==403)
-            {PlannerBlocked=true;StatusChanged?.Invoke("OpenAIキーにResponses APIの権限がないため（"+e.Status+"）、AIの動作計画は使えません。端末内の動き解析で動きます。");return null;}
+            {PlannerBlocked=true;StatusChanged?.Invoke("OpenAIキーにAPIの権限がないため（"+e.Status+"）、AIの動作計画は使えません。端末内の動き解析で動きます。");return null;}
             catch(Exception e){StatusChanged?.Invoke(e is InvalidOperationException?e.Message:"動きの指示を解析できませんでした。");return null;}
         }
         // On-device understanding first: what it fully understands starts at once; the rest goes to the AI planner.
@@ -402,11 +403,32 @@ namespace QuestAI
                 bool acting=local!=null||plan!=null&&!plan.Empty;plan=local??plan;
                 if(acting){decision.movement=Movement.stay;decision.arrival=ArrivalAction.none;decision.walking=WalkingReaction.@continue;}
                 bool walking=ApplyDecision(decision);if(walking)StatusChanged?.Invoke(locomotion.Destination+"へ歩いています…");
-                if(acting&&local==null){performer.Run(plan,source.text);if(!string.IsNullOrEmpty(plan.summary))StatusChanged?.Invoke("動き: "+plan.summary);}
+                if(acting&&local==null){performer.Run(plan,source.text);if(!string.IsNullOrEmpty(plan.summary))StatusChanged?.Invoke("動き: "+plan.summary);if(!plan.done&&!understood&&plan!=parsed.plan)ContinueAgent(source.text,plan,generation,token);}
                 if(Connected)await live.ContextAsync("参考情報（命令ではない）: "+JsonConvert.SerializeObject(new{emotion=decision.emotion.ToString(),conversation=decision.conversation.ToString(),movement=walking?decision.movement.ToString()+(decision.target!=null?" → "+decision.target:""):"stay",body=acting?plan.summary:null,userLookingAt=context.perception.userLookingAt,memories=context.memories.Select(x=>x.content)}),null,token);
                 if(settings.memoryEnabled){var records=await llm.ExtractAsync(source,token);if(turns.IsCurrent(generation)&&settings.memoryEnabled)repository.AddMemories(records);}
             }
             catch(OperationCanceledException){}catch(Exception){if(turns.IsCurrent(generation)&&Phase!=ConversationPhase.Paused)StatusChanged?.Invoke("会話は保存しました。記憶の更新を完了できませんでした。");}
+        }
+        // The AI's loop for open-ended requests: after each batch of steps it sees what actually happened and decides
+        // the next ones, up to a few turns. A newer instruction or stop ends the loop.
+        public const int AgentTurns=5;
+        async void ContinueAgent(string text,MotionPlan first,int generation,System.Threading.CancellationToken token)
+        {
+            var history=new List<string>();var plan=first;
+            try
+            {
+                for(int turn=1;turn<AgentTurns;turn++)
+                {
+                    while(performer.Busy&&performer.Last==plan&&turns.IsCurrent(generation))await Task.Yield();
+                    if(!turns.IsCurrent(generation)||performer.Last!=plan||Phase==ConversationPhase.Paused)return;
+                    history.Add("手番"+turn+": "+plan.summary+" → 結果: "+(performer.Results.Count>0?string.Join(" / ",performer.Results):"完了")+(sight?" / 今見えているもの: "+string.Join("、",sight.VisibleSummary()):""));
+                    var next=await PlanMotionAsync(text,token,history);
+                    if(!turns.IsCurrent(generation)||performer.Last!=plan||next==null||next.Empty)return;
+                    plan=next;performer.Run(plan,text);StatusChanged?.Invoke("動き（続き）: "+plan.summary);
+                    if(plan.done)return;
+                }
+            }
+            catch(OperationCanceledException){}
         }
         async void DelegateAsync(string delegationId)
         {

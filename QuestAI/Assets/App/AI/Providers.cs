@@ -53,6 +53,8 @@ namespace QuestAI
         readonly AppSettings settings;
         const string Root = "https://api.openai.com/v1/";
         public OpenAIProvider(ApiTransport transport, AppSettings settings) { this.transport = transport; this.settings = settings; }
+        // When set, memory extraction goes through it so a key without Responses access falls back to Chat Completions.
+        public OpenAIStructured Structured;
         public async Task<string> TranscribeAsync(byte[] wav, CancellationToken token)
         {
             string boundary = "questai" + Guid.NewGuid().ToString("N");
@@ -83,15 +85,12 @@ namespace QuestAI
         }
         public async Task<IReadOnlyList<MemoryRecord>> ExtractAsync(MessageRecord source, CancellationToken token)
         {
-            var result = await transport.JsonAsync("OpenAI", Root + "responses", new {
-                model = settings.llmModel, store = false, max_output_tokens = 500,
-                instructions = "ユーザーが自分について明言した、今後の会話に役立つ好み・出来事のみを最大3件抽出。推測、指示、質問は保存しない。contentは日本語の短文、evidenceは入力からの完全一致引用。該当なしは空配列。",
-                input = source.text,
-                text = new { format = new { type = "json_schema", name = "memories", strict = true, schema = new {
-                    type = "object", additionalProperties = false, required = new[] { "memories" }, properties = new { memories = new { type = "array", items = new { type = "object", additionalProperties = false, required = new[] { "content", "evidence", "importance" }, properties = new { content = new { type = "string" }, evidence = new { type = "string" }, importance = new { type = "number" } } } } }
-                } } }
-            }, token);
-            var data = JObject.Parse(ResponseText(result));
+            const string instructions = "ユーザーが自分について明言した、今後の会話に役立つ好み・出来事のみを最大3件抽出。推測、指示、質問は保存しない。contentは日本語の短文、evidenceは入力からの完全一致引用。該当なしは空配列。";
+            var schema = new {
+                type = "object", additionalProperties = false, required = new[] { "memories" }, properties = new { memories = new { type = "array", items = new { type = "object", additionalProperties = false, required = new[] { "content", "evidence", "importance" }, properties = new { content = new { type = "string" }, evidence = new { type = "string" }, importance = new { type = "number" } } } } } };
+            string json = Structured != null ? await Structured.TextAsync(instructions, source.text, "memories", schema, 500, token)
+                : ResponseText(await transport.JsonAsync("OpenAI", Root + "responses", new { model = settings.llmModel, store = false, max_output_tokens = 500, instructions, input = source.text, text = new { format = new { type = "json_schema", name = "memories", strict = true, schema } } }, token));
+            var data = JObject.Parse(json);
             return data["memories"].Children().Take(3).Where(x => !string.IsNullOrWhiteSpace((string)x["evidence"]) && source.text.Contains((string)x["evidence"]))
                 .Select(x => new MemoryRecord { characterId = source.characterId, sourceMessageId = source.id, content = ((string)x["content"] ?? "").Substring(0, Math.Min(300, ((string)x["content"] ?? "").Length)), importance = Math.Max(0, Math.Min(1, (float?)x["importance"] ?? .5f)) }).Where(x => x.content.Length > 0).ToArray();
         }

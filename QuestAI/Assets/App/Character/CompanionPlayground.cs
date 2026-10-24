@@ -11,7 +11,7 @@ namespace QuestAI
     // Sequencing (walking over, timing a kick) is MotionPerformer's job; the conversation stays connected throughout.
     public sealed class CompanionPlayground : MonoBehaviour
     {
-        public enum ToyKind { Ball, Blocks, Spinner }
+        public enum ToyKind { Ball, Blocks, Spinner, Cushion, Book, Box, Teddy }
         public sealed class Toy
         {
             public GameObject root; public SceneObject item; public ToyKind kind; public bool stacked;
@@ -43,13 +43,20 @@ namespace QuestAI
         float Floor => brain.world.floor.max.y;
         static float Distance(Vector3 a, Vector3 b) => Vector2.Distance(new Vector2(a.x,a.z),new Vector2(b.x,b.z));
         static Vector3 Flat(Vector3 v) { v.y = 0; return v; }
-        public static string Label(ToyKind kind) => kind == ToyKind.Ball ? "ボール" : kind == ToyKind.Blocks ? "積み木" : "回転おもちゃ";
+        static readonly string[] Labels = { "ボール", "積み木", "回転おもちゃ", "クッション", "本", "箱", "ぬいぐるみ" };
+        public static string Label(ToyKind kind) => Labels[(int)kind];
+        // Props made from room models (CC0 Kenney furniture kit): one rigid body each.
+        public static bool IsProp(ToyKind kind) => kind >= ToyKind.Cushion;
         public static ToyKind? KindOf(string text)
         {
             if (string.IsNullOrEmpty(text)) return null;
             if (text.Contains("ボール") || text.Contains("ぼーる") || text.Contains("ball") || text.Contains("Ball") || text.Contains("球")) return ToyKind.Ball;
             if (text.Contains("積み木") || text.Contains("積木") || text.Contains("つみき") || text.Contains("ブロック") || text.Contains("block")) return ToyKind.Blocks;
             if (text.Contains("回転") || text.Contains("コマ") || text.Contains("こま") || text.Contains("独楽") || text.Contains("spin")) return ToyKind.Spinner;
+            if (text.Contains("クッション") || text.Contains("枕") || text.Contains("まくら") || text.Contains("マクラ")) return ToyKind.Cushion;
+            if (text.Contains("ぬいぐるみ") || text.Contains("くま") || text.Contains("クマ") || text.Contains("熊") || text.Contains("テディ")) return ToyKind.Teddy;
+            if (text.Contains("箱") || text.Contains("ダンボール") || text.Contains("段ボール") || text.Contains("はこ")) return ToyKind.Box;
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, "(絵本|本棚の本|^本|[をのとに]?本(を|で|が|も|は|$))") && !text.Contains("本棚") && !text.Contains("日本")) return ToyKind.Book;
             return null;
         }
         public static bool CanPlace(SceneAwareness world, Vector3 point, Vector3 character, Vector3 user, IEnumerable<Vector3> existing)
@@ -115,6 +122,7 @@ namespace QuestAI
                     var block=Piece(toy,PrimitiveType.Cube,at,Quaternion.Euler(0,angle*1.7f,0),Vector3.one*BlockSize,Color.HSVToRGB(i/(float)Blocks*.8f+.05f,.6f,.95f),.12f,RoomPhysics.Grippy);block.solverIterations=24;block.sleepThreshold=.02f;
                 }
             }
+            else if(IsProp(kind)){if(!Prop(toy,kind,point)){Destroy(root);serial--;Status?.Invoke("このおもちゃのモデルが見つかりません。");return false;}}
             else
             {
                 // A disc with a bar on top, kept upright while it spins.
@@ -134,6 +142,23 @@ namespace QuestAI
             foreach(var cell in brain.world.grid.FreeCells().OrderBy(c=>Distance(c,ideal)))
                 if(CanPlace(brain.world,cell,self,user,toys.Select(t=>t.Center))&&TryPlace(kind,cell))return toys[toys.Count-1];
             return null;
+        }
+        // Scales the catalog model to its real size and wraps it in one box-shaped rigid body.
+        bool Prop(Toy toy,ToyKind kind,Vector3 point)
+        {
+            var catalog=Resources.Load<PropCatalog>("Motion/Props");var entry=catalog?catalog.Get(Label(kind)):default;
+            if(!entry.model)return false;
+            var holder=new GameObject(Label(kind)+" body");holder.transform.SetParent(toy.root.transform,false);
+            var model=Instantiate(entry.model,holder.transform);foreach(var c in model.GetComponentsInChildren<Collider>())Destroy(c);
+            var renderers=model.GetComponentsInChildren<Renderer>();if(renderers.Length==0)return false;
+            Bounds Measure(){var b=renderers[0].bounds;foreach(var r in renderers)b.Encapsulate(r.bounds);return b;}
+            var bounds=Measure();model.transform.localScale*=entry.size/Mathf.Max(.01f,Mathf.Max(bounds.size.x,bounds.size.y,bounds.size.z));bounds=Measure();
+            // Centre the model on the body so the box collider fits it.
+            model.transform.position+=holder.transform.position-bounds.center;bounds=Measure();
+            holder.transform.position=point+Vector3.up*(bounds.size.y/2+.01f);
+            var box=holder.AddComponent<BoxCollider>();box.size=bounds.size;box.sharedMaterial=kind==ToyKind.Cushion||kind==ToyKind.Teddy?RoomPhysics.Soft:RoomPhysics.Grippy;
+            var body=holder.AddComponent<Rigidbody>();body.mass=entry.mass;body.interpolation=RigidbodyInterpolation.Interpolate;body.collisionDetectionMode=CollisionDetectionMode.ContinuousDynamic;body.angularDamping=.3f;
+            toy.bodies.Add(body);return true;
         }
         Material Paint(Color color){var material=new Material(Shader.Find("Universal Render Pipeline/Lit"));material.color=color;material.SetFloat("_Smoothness",.35f);materials.Add(material);return material;}
         Rigidbody Piece(Toy toy,PrimitiveType shape,Vector3 at,Quaternion rotation,Vector3 scale,Color color,float mass,PhysicsMaterial surface)
@@ -218,10 +243,16 @@ namespace QuestAI
             }
         }
         void Update(){if(brain&&brain.world!=null)foreach(var toy in toys)if(toy.carried||toy.Moving||Time.frameCount%15==0)Sync(toy);}
+        static float HalfHeight(Rigidbody body){var shapes=body.GetComponentsInChildren<Collider>();if(shapes.Length==0)return .1f;var b=shapes[0].bounds;foreach(var s in shapes)b.Encapsulate(s.bounds);return b.extents.y;}
+        static float HalfWidth(Rigidbody body){var shapes=body.GetComponentsInChildren<Collider>();if(shapes.Length==0)return .1f;var b=shapes[0].bounds;foreach(var s in shapes)b.Encapsulate(s.bounds);return Mathf.Max(b.extents.x,b.extents.z);}
         void LateUpdate()
         {
-            if(held.Count==0||!brain)return;var hands=Hands;var rotation=Quaternion.Euler(0,brain.transform.eulerAngles.y,0);
-            foreach(var pair in held){if(!pair.Key)continue;pair.Key.transform.SetPositionAndRotation(hands+rotation*pair.Value,rotation);}
+            if(!brain||!brain.body)return;
+            if(held.Count==0){brain.body.holdCenter=null;return;}
+            var hands=Hands;var rotation=Quaternion.Euler(0,brain.transform.eulerAngles.y,0);float width=.05f;
+            foreach(var pair in held){if(!pair.Key)continue;pair.Key.transform.SetPositionAndRotation(hands+rotation*pair.Value,rotation);width=Mathf.Max(width,HalfWidth(pair.Key));}
+            // Both hands on the sides of what is carried.
+            brain.body.holdCenter=hands;brain.body.holdWidth=width;
         }
         // Holding: the bodies stop simulating and follow the hands. Blocks are held as a small stack, or one at a time.
         public List<Rigidbody> PickUp(Toy toy,bool single=false)
@@ -246,12 +277,21 @@ namespace QuestAI
             }
             if(brain.body)brain.body.Holding=held.Count>0;
         }
-        public void ReleaseAll(Vector3 velocity)=>Release(held.Keys,velocity);
+        public void ReleaseAll(Vector3 velocity){Release(held.Keys,velocity);if(brain&&brain.body)brain.body.rightHandTarget=null;}
+        // Sets the toy down on top of a piece of furniture (or on the floor beside it when there is no room on top).
+        public IEnumerator PutOn(Toy toy,SceneObject furniture)
+        {
+            if(toy==null||furniture==null)yield break;
+            var mine=toy.bodies.Where(b=>held.ContainsKey(b)).ToList();if(mine.Count==0)mine=toy.bodies.ToList();
+            var top=furniture.bounds;var spot=top.ClosestPoint(brain.transform.position);spot=Vector3.MoveTowards(new Vector3(spot.x,top.max.y,spot.z),new Vector3(top.center.x,top.max.y,top.center.z),.12f);
+            for(int i=0;i<mine.Count;i++)yield return Place(mine[i],spot+Vector3.up*(HalfHeight(mine[i])+i*BlockSize*1.01f),Quaternion.Euler(0,brain.transform.eulerAngles.y,0),.55f);
+            Sync(toy);
+        }
         public void PutDown(Toy toy,Vector3 point)
         {
             if(toy==null||!toy.carried)return;
             point=brain.world.grid.Snap(point);var mine=toy.bodies.Where(b=>held.ContainsKey(b)).ToList();
-            for(int i=0;i<mine.Count;i++){var size=toy.kind==ToyKind.Ball?BallRadius:toy.kind==ToyKind.Blocks?BlockSize/2:.06f;mine[i].transform.position=new Vector3(point.x,Floor+size+i*BlockSize*1.01f,point.z);}
+            for(int i=0;i<mine.Count;i++){mine[i].transform.position=new Vector3(point.x,Floor+HalfHeight(mine[i])+i*BlockSize*1.01f,point.z);}
             Release(mine,Vector3.zero);Sync(toy);
         }
         // Throws the held body so it lands on the target point.
@@ -268,10 +308,12 @@ namespace QuestAI
             for(float t=0;t<1;t+=Time.deltaTime/seconds)
             {
                 float s=Mathf.SmoothStep(0,1,t);
-                // Through the hands, so the block visibly passes through the character's grip.
+                // Through the hands, so the block visibly passes through the character's grip; the right hand carries it.
                 var a=Vector3.Lerp(from,via,s);var b=Vector3.Lerp(via,position+Vector3.up*.02f,s);body.transform.SetPositionAndRotation(Vector3.Lerp(a,b,s),Quaternion.Slerp(turn,rotation,s));
+                if(brain.body)brain.body.rightHandTarget=body.transform.position+Vector3.up*.03f;
                 yield return null;
             }
+            if(brain.body)brain.body.rightHandTarget=null;
             body.transform.SetPositionAndRotation(position+Vector3.up*.004f,rotation);body.isKinematic=false;body.detectCollisions=true;body.linearVelocity=Vector3.zero;body.angularVelocity=Vector3.zero;
             if(brain.body)brain.body.Holding=held.Count>0;
         }

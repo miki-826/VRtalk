@@ -11,6 +11,8 @@ namespace QuestAI
         public Transform user;
         public float speed = .55f, turnSpeed = 220;
         public float Speed01 { get; private set; }
+        // Metres per second the feet actually cover, for matching the walk animation.
+        public float GroundSpeed => Moving ? speed * PaceScale * Speed01 : 0;
         // 1 for normal, below 1 for a slow stroll, above 1 when hurrying; the body scales its step rhythm with it.
         public float PaceScale { get; private set; } = 1;
         public bool Moving => path != null;

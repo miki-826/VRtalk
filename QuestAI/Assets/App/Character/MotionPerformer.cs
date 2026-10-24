@@ -16,7 +16,11 @@ namespace QuestAI
         public string Request { get; private set; }
         public MotionStep Current { get; private set; }
         public Action<string> Status, Report;
+        // What happened during the current plan (successes and failures), for the AI's next turn.
+        public readonly List<string> Results = new List<string>();
         void Awake() { brain = GetComponent<CharacterBrain>(); }
+        void Tell(string message) { Results.Add(message); Report?.Invoke(message); }
+        ClipAnimator Clips => brain.GetComponent<ClipAnimator>();
         CompanionPlayground Toys => brain.playground;
         SceneAwareness World => brain.world;
         CharacterLocomotion Legs => brain.locomotion;
@@ -27,9 +31,9 @@ namespace QuestAI
 
         public void Run(MotionPlan plan, string request)
         {
-            Stop();
+            Stop(); Results.Clear();
             if (plan == null || plan.Empty) return;
-            if (plan.steps.All(s => s.action == MotionAction.stop)) { Report?.Invoke("ユーザーに言われて動きを止めました。"); return; }
+            if (plan.steps.All(s => s.action == MotionAction.stop)) { Tell("ユーザーに言われて動きを止めました。"); return; }
             Last = plan; Request = request; Busy = true; int v = ++version;
             if (Legs) { Legs.Frozen = true; frozen = true; }
             StartCoroutine(Execute(plan, v));
@@ -41,7 +45,8 @@ namespace QuestAI
             Busy = false;
             if (Legs) { Legs.Stop(); if (frozen) Legs.Frozen = false; }
             frozen = false;
-            if (Body) { Body.ClearMotion(); Body.lookPoint = null; if (Body.CurrentPose == BodySystem.Pose.crouch || Body.CurrentPose == BodySystem.Pose.point) Body.SetPose(BodySystem.Pose.stand, null); }
+            if (Clips) Clips.StopAction();
+            if (Body) { Body.ClearMotion(); Body.lookPoint = null; Body.leftHandTarget = Body.rightHandTarget = null; if (Body.CurrentPose == BodySystem.Pose.crouch || Body.CurrentPose == BodySystem.Pose.point) Body.SetPose(BodySystem.Pose.stand, null); }
             if (Toys) Toys.Settle();
         }
         IEnumerator Execute(MotionPlan plan, int v)
@@ -57,10 +62,10 @@ namespace QuestAI
             if (v != version) yield break;
             Body.ClearMotion(); Current = null; Busy = false;
             if (Legs && frozen) Legs.Frozen = false; frozen = false;
-            Report?.Invoke("頼まれた動き（" + (string.IsNullOrEmpty(plan.summary) ? "動作" : plan.summary) + "）を終えました。" + Seen());
+            Tell("頼まれた動き（" + (string.IsNullOrEmpty(plan.summary) ? "動作" : plan.summary) + "）を終えました。" + Seen());
         }
         string Seen() { var seen = brain.sight ? brain.sight.VisibleSummary() : Array.Empty<string>(); return seen.Length > 0 ? "今見えているもの: " + string.Join("、", seen.Take(5)) + "。" : ""; }
-        void Fail(string message) { Status?.Invoke(message); Report?.Invoke("頼まれた動きの一部ができませんでした: " + message); }
+        void Fail(string message) { Status?.Invoke(message); Tell("頼まれた動きの一部ができませんでした: " + message); }
 
         // Resolves an id to a world point: the user, a toy or a room object.
         bool Point(string id, out Vector3 point, out SceneObject item)
@@ -127,6 +132,10 @@ namespace QuestAI
                     break;
                 case MotionAction.motion:
                     if (step.motion == MotionPreset.spin) { yield return Spin(Mathf.Clamp(Mathf.RoundToInt(amount), 1, 5), v); break; }
+                    // Real (motion-captured) animation when this model has one, keyframes otherwise.
+                    var clipNames = step.motion == MotionPreset.custom ? null : MotionLibrary.ClipsFor(step.motion, Clips);
+                    if (clipNames != null && step.motion == MotionPreset.jump && Clips.Has("Jump_Loop")) { for (int i = 0; i < Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6) && v == version; i++) yield return Jump(v); break; }
+                    if (clipNames != null) { yield return PlayClips(clipNames, MotionLibrary.LoopSeconds(step.motion), Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6), v); break; }
                     var keys = step.motion == MotionPreset.custom ? step.keys : MotionLibrary.Get(step.motion);
                     if (keys == null || keys.Length == 0) { Fail("その動きの形がわかりませんでした。"); break; }
                     yield return Keys(keys, Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6), v); break;
@@ -137,7 +146,7 @@ namespace QuestAI
                         var kind = CompanionPlayground.KindOf(step.target) ?? CompanionPlayground.ToyKind.Ball;
                         var made = Toys ? Toys.Spawn(kind) : null;
                         if (made == null) { Fail(CompanionPlayground.Label(kind) + "を置ける場所がありません。"); break; }
-                        Look(made.Center); Report?.Invoke(made.item.id + "を床に出しました。"); yield return Hold(.6f, v); break;
+                        Look(made.Center); Tell(made.item.id + "を床に出しました。"); yield return Hold(.6f, v); break;
                     }
                 case MotionAction.roll: case MotionAction.kick: case MotionAction.throw_ball: case MotionAction.bounce:
                     yield return PlayBall(step, v); break;
@@ -145,8 +154,9 @@ namespace QuestAI
                 case MotionAction.pick_up:
                     {
                         var held = NeedToy(step.target, null); if (held == null) break;
+                        if (held.carried) break;
                         yield return WalkToToy(held, Self, step.pace, v); if (v != version) yield break;
-                        yield return Keys(MotionLibrary.PickUp, 1, v); Toys.PickUp(held); break;
+                        yield return Grab(held, false, v, null); Tell(held.item.id + "を持ち上げました。"); break;
                     }
                 case MotionAction.put_down:
                     {
@@ -161,6 +171,30 @@ namespace QuestAI
                         brain.HoldPose(BodySystem.Pose.crouch, top.Center, 3); yield return Hold(.5f, v); Toys.Spin(top, 30); yield return Hold(1.5f, v); break;
                     }
                 case MotionAction.put_away: if (Toys) Toys.ClearToys(); yield return Hold(.3f, v); break;
+                case MotionAction.put_on:
+                    {
+                        var thing = NeedToy(step.target, null); if (thing == null) break;
+                        if (!Point(step.toward, out _, out var furniture) || furniture == null || Toys.Find(step.toward) != null) { Fail("置く場所が見つかりません。"); break; }
+                        if (!thing.carried) { yield return WalkToToy(thing, Self, step.pace, v); if (v != version) yield break; yield return Grab(thing, false, v, null); if (v != version) yield break; }
+                        yield return WalkToObject(furniture, step.pace, v); if (v != version) yield break;
+                        Face(furniture.bounds.center); yield return Hold(.3f, v); yield return Toys.PutOn(thing, furniture);
+                        Tell(thing.item.id + "を" + furniture.id + "の上に置きました。"); break;
+                    }
+                case MotionAction.touch:
+                    {
+                        string id = string.IsNullOrEmpty(step.target) ? "user" : step.target;
+                        if (!Point(id, out var spot, out var thing)) { Fail("触る物が見つかりません。"); break; }
+                        var nearToy = Toys ? Toys.Find(id) : null;
+                        if (id == "user") yield return ApproachUser(step.pace, v);
+                        else if (nearToy != null) yield return WalkToToy(nearToy, Self, step.pace, v);
+                        else yield return WalkToObject(thing, step.pace, v);
+                        if (v != version) yield break;
+                        // The hand goes to the nearest surface at about chest height (for the user: towards their hand).
+                        var hand = id == "user" ? Vector3.Lerp(Self + Vector3.up * .6f, User - Vector3.up * .5f, .6f) : (thing != null ? thing.bounds.ClosestPoint(Self + Vector3.up * .6f) : spot);
+                        Face(hand); yield return Hold(.25f, v); Body.rightHandTarget = hand; if (Clips) Clips.Play("Interact");
+                        yield return Hold(1.6f, v); Body.rightHandTarget = null;
+                        Tell((id == "user" ? "ユーザー" : id) + "に手で触れました。"); break;
+                    }
                 case MotionAction.look_closely:
                     if (Point(step.target, out var detail, out _)) { Face(detail); Look(detail); yield return Hold(.6f, v); }
                     var looking = brain.LookClosely(Request);
@@ -173,7 +207,7 @@ namespace QuestAI
         {
             if (!Toys || World == null) { Fail("この場所ではおもちゃを使えません。"); return null; }
             var toy = Toys.Find(id, kind);
-            if (toy == null) { var wanted = CompanionPlayground.KindOf(id) ?? kind ?? CompanionPlayground.ToyKind.Ball; toy = Toys.Spawn(wanted); if (toy != null) Report?.Invoke(toy.item.id + "を床に出しました。"); }
+            if (toy == null) { var wanted = CompanionPlayground.KindOf(id) ?? kind ?? CompanionPlayground.ToyKind.Ball; toy = Toys.Spawn(wanted); if (toy != null) Tell(toy.item.id + "を床に出しました。"); }
             if (toy == null) Fail("おもちゃを置ける場所がありません。");
             return toy;
         }
@@ -249,6 +283,37 @@ namespace QuestAI
             Body.ClearMotion();
         }
         IEnumerator Hold(float seconds, int v) { for (float end = Time.time + seconds; Time.time < end && v == version;) yield return null; }
+        IEnumerator PlayClips(string[] names, float loop, int repeat, int v)
+        {
+            for (int r = 0; r < repeat && v == version; r++)
+                foreach (var clip in names)
+                {
+                    if (v != version) yield break;
+                    Clips.Play(clip, clip.EndsWith("_Loop") || MotionLibrary.Loops(clip) ? loop : 0);
+                    yield return null; while (Clips.GestureActive && v == version) yield return null;
+                }
+        }
+        // Take-off crouch, a real arc through the air in the airborne pose, then the landing.
+        IEnumerator Jump(int v)
+        {
+            Clips.Play("Jump_Start"); float crouch = Clips.Length("Jump_Start") * .7f;
+            for (float t = 0; t < crouch && v == version; t += Time.deltaTime) yield return null;
+            Clips.Play("Jump_Loop", .6f);
+            for (float t = 0; t < .5f && v == version; t += Time.deltaTime) { Body.SetMotion(new MotionKey { lift = Mathf.Sin(t / .5f * Mathf.PI) * .35f }); yield return null; }
+            Body.ClearMotion(); Clips.Play("Jump_Land");
+            yield return null; while (Clips.GestureActive && v == version) yield return null;
+        }
+        // Crouches, reaches both hands to the toy's sides, then lifts it.
+        IEnumerator Grab(CompanionPlayground.Toy toy, bool single, int v, Action<List<Rigidbody>> got)
+        {
+            brain.HoldPose(BodySystem.Pose.crouch, toy.Center, 3); Look(toy.Center);
+            var side = Flat(brain.transform.right) * Mathf.Clamp(toy.item.bounds.extents.x * .8f, .06f, .25f);
+            Body.leftHandTarget = toy.Center - side; Body.rightHandTarget = toy.Center + side;
+            yield return Hold(.6f, v);
+            Body.leftHandTarget = Body.rightHandTarget = null; if (v != version) yield break;
+            var taken = Toys.PickUp(toy, single); brain.EndPose(); got?.Invoke(taken);
+            yield return Hold(.35f, v);
+        }
         // Plays keyframes smoothly; the body eases back to its normal pose afterwards.
         IEnumerator Keys(MotionKey[] keys, int repeat, int v, Action<float> at = null)
         {
@@ -277,7 +342,7 @@ namespace QuestAI
             {
                 yield return WalkToToy(ball, Self, step.pace, v); if (v != version) yield break;
                 brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 1.2f); yield return Keys(MotionLibrary.PickUp, 1, v); if (v != version) yield break;
-                Look(ball.Center); yield return Toys.Bounce(ball, Mathf.Clamp(Mathf.RoundToInt(step.amount), 2, 8)); Report?.Invoke(ball.item.id + "を弾ませました。"); yield break;
+                Look(ball.Center); yield return Toys.Bounce(ball, Mathf.Clamp(Mathf.RoundToInt(step.amount), 2, 8)); Tell(ball.item.id + "を弾ませました。"); yield break;
             }
             var target = Destination(step, ball.Center, 2.5f); Vector3 aim = Flat(target - ball.Center).normalized;
             // Stand on the far side of the ball from where it should go.
@@ -288,13 +353,15 @@ namespace QuestAI
                 yield return Keys(MotionLibrary.Kick, 1, v, t => { if (!pushed && t >= .42f) { pushed = true; Toys.Push(ball, aim * Mathf.Max(2.5f, CompanionPlayground.SpeedFor(distance) * 1.5f) + Vector3.up * 1.2f); } });
             else
             {
-                brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 2.5f); yield return Hold(.5f, v);
+                // Crouch, put a hand behind the ball and push it off.
+                brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 2.5f); Body.rightHandTarget = ball.Center - aim * CompanionPlayground.BallRadius; yield return Hold(.5f, v);
                 yield return Keys(MotionLibrary.Roll, 1, v, t => { if (!pushed && t >= .35f) { pushed = true; Toys.Push(ball, aim * Mathf.Clamp(CompanionPlayground.SpeedFor(distance), .7f, 4)); } });
+                Body.rightHandTarget = null;
             }
             if (!pushed && v == version) Toys.Push(ball, aim * 1.5f);
             brain.EndPose();
             yield return Watch(ball, 4, v);
-            Report?.Invoke(ball.item.id + "を" + (step.action == MotionAction.kick ? "蹴りました" : "転がしました") + "。");
+            Tell(ball.item.id + "を" + (step.action == MotionAction.kick ? "蹴りました" : "転がしました") + "。");
         }
         IEnumerator Watch(CompanionPlayground.Toy toy, float seconds, int v)
         {
@@ -310,27 +377,36 @@ namespace QuestAI
             else
             {
                 yield return WalkToToy(toy, Self, step.pace, v); if (v != version) yield break;
-                brain.HoldPose(BodySystem.Pose.crouch, toy.Center, 1); yield return Keys(MotionLibrary.PickUp, 1, v, null); if (v != version) yield break;
-                grip = Toys.PickUp(toy, single: true); brain.EndPose();
+                List<Rigidbody> taken = null; yield return Grab(toy, true, v, g => taken = g); if (v != version || taken == null) yield break;
+                grip = taken;
             }
             var target = Destination(step, Self, 3);
             Face(target); yield return Hold(.45f, v); if (v != version) yield break;
             float distance = Vector3.Distance(Flat(Self), Flat(target)), flight = Mathf.Clamp(distance / 3.2f, .6f, 1.1f); bool thrown = false;
-            yield return Keys(MotionLibrary.Throw, 1, v, t => { if (!thrown && t >= .55f) { thrown = true; Toys.Throw(grip, target, flight); } });
+            if (Clips && Clips.Has("OverhandThrow"))
+            {
+                // The captured overhand throw: wind up, then let go as the arm comes over.
+                float length = Clips.Length("OverhandThrow"); Clips.Play("OverhandThrow");
+                for (float t = 0; t < length && v == version; t += Time.deltaTime) { if (!thrown && t >= length * .45f) { thrown = true; Toys.Throw(grip, target, flight); } yield return null; }
+            }
+            else yield return Keys(MotionLibrary.Throw, 1, v, t => { if (!thrown && t >= .55f) { thrown = true; Toys.Throw(grip, target, flight); } });
             if (!thrown && v == version) Toys.Throw(grip, target, flight);
             yield return Watch(toy, 4, v);
-            Report?.Invoke(toy.item.id + "を投げました。");
+            Tell(toy.item.id + "を投げました。");
         }
         IEnumerator Fetch(MotionStep step, int v)
         {
             var toy = NeedToy(step.target, null); if (toy == null) yield break;
-            yield return WalkToToy(toy, Self, step.pace, v); if (v != version || toy.carried) yield break;
-            yield return Keys(MotionLibrary.PickUp, 1, v); if (v != version) yield break;
-            Toys.PickUp(toy);
+            if (!toy.carried)
+            {
+                yield return WalkToToy(toy, Self, step.pace, v); if (v != version) yield break;
+                yield return Grab(toy, false, v, null); if (v != version) yield break;
+            }
             yield return ApproachUser(step.pace, v); if (v != version) yield break;
-            yield return Keys(MotionLibrary.PickUp, 1, v);
-            Toys.PutDown(toy, Self + Flat(User - Self).normalized * .5f);
-            Body.Apply(new BehaviorDecision { emotion = Emotion.happy, gesture = Gesture.nod }); Report?.Invoke(toy.item.id + "をユーザーのところへ持ってきました。");
+            // Bend down and set it at the user's feet.
+            brain.HoldPose(BodySystem.Pose.crouch, null, 1); yield return Hold(.5f, v);
+            Toys.PutDown(toy, Self + Flat(User - Self).normalized * .5f); brain.EndPose();
+            Body.Apply(new BehaviorDecision { emotion = Emotion.happy, gesture = Gesture.nod }); Tell(toy.item.id + "をユーザーのところへ持ってきました。");
         }
         IEnumerator PlayBlocks(MotionStep step, int v)
         {
@@ -342,12 +418,12 @@ namespace QuestAI
             {
                 case MotionAction.stack:
                     if (blocks.stacked) yield return Toys.LineUp(blocks, brain.transform.right, .2f);
-                    yield return Toys.Stack(blocks, Mathf.RoundToInt(step.amount)); Report?.Invoke(blocks.item.id + "を積み上げました。"); break;
-                case MotionAction.line_up: yield return Toys.LineUp(blocks, brain.transform.right); Report?.Invoke(blocks.item.id + "を一列に並べました。"); break;
+                    yield return Toys.Stack(blocks, Mathf.RoundToInt(step.amount)); Tell(blocks.item.id + "を積み上げました。"); break;
+                case MotionAction.line_up: yield return Toys.LineUp(blocks, brain.transform.right); Tell(blocks.item.id + "を一列に並べました。"); break;
                 default:
                     if (!blocks.stacked) yield return Toys.Stack(blocks, 5, .25f);
                     yield return Keys(MotionLibrary.Kick, 1, v, null); Toys.KnockDown(blocks, Direction(step, blocks.Center));
-                    yield return Hold(1.2f, v); Report?.Invoke(blocks.item.id + "の塔を崩しました。"); break;
+                    yield return Hold(1.2f, v); Tell(blocks.item.id + "の塔を崩しました。"); break;
             }
             brain.EndPose();
         }
@@ -381,7 +457,63 @@ namespace QuestAI
             [MotionPreset.sit_floor] = new[] { K(0), K(.8f, k => { k.hips_drop = 1; k.left_leg = 70; k.right_leg = 70; k.left_knee = 60; k.right_knee = 60; k.chest_pitch = 8; }), K(3.6f, k => { k.hips_drop = 1; k.left_leg = 70; k.right_leg = 70; k.left_knee = 60; k.right_knee = 60; k.chest_pitch = 8; }), K(4.4f) },
             [MotionPreset.think] = new[] { K(0), K(.5f, k => { k.right_arm_up = 70; k.right_elbow = 130; k.head_roll = 15; k.head_pitch = 10; }), K(2.2f, k => { k.right_arm_up = 70; k.right_elbow = 130; k.head_roll = 15; k.head_pitch = 10; }), K(2.7f) },
             [MotionPreset.cheer] = new[] { K(0), K(.25f, k => { k.hips_drop = .3f; }), K(.45f, k => { k.lift = .25f; k.left_arm_up = 170; k.right_arm_up = 170; k.left_arm_out = 25; k.right_arm_out = 25; }), K(.7f, k => k.hips_drop = .2f), K(.95f, k => { k.lift = .25f; k.left_arm_up = 170; k.right_arm_up = 170; k.left_arm_out = 25; k.right_arm_out = 25; }), K(1.3f) },
+            [MotionPreset.punch] = new[] { K(0), K(.15f, k => { k.right_arm_up = 20; k.right_elbow = 120; k.chest_yaw = -15; }), K(.3f, k => { k.right_arm_up = 90; k.chest_yaw = 20; }), K(.5f, k => { k.right_arm_up = 50; k.right_elbow = 90; }), K(.8f) },
+            [MotionPreset.forward_roll] = new[] { K(0), K(.3f, k => { k.hips_drop = .8f; k.chest_pitch = 60; k.head_pitch = 40; k.left_knee = 80; k.right_knee = 80; }), K(.7f, k => { k.hips_drop = .9f; k.chest_pitch = 85; k.head_pitch = 50; k.left_knee = 90; k.right_knee = 90; }), K(1.1f, k => k.hips_drop = .5f), K(1.5f) },
+            [MotionPreset.push] = new[] { K(0), K(.4f, k => { k.left_arm_up = 90; k.right_arm_up = 90; k.left_elbow = 30; k.right_elbow = 30; k.chest_pitch = 15; }), K(2f, k => { k.left_arm_up = 90; k.right_arm_up = 90; k.left_elbow = 10; k.right_elbow = 10; k.chest_pitch = 20; }), K(2.4f) },
+            [MotionPreset.fold_arms] = new[] { K(0), K(.5f, k => { k.left_arm_up = 70; k.right_arm_up = 70; k.left_arm_out = -30; k.right_arm_out = -30; k.left_elbow = 130; k.right_elbow = 130; }), K(2.5f, k => { k.left_arm_up = 70; k.right_arm_up = 70; k.left_arm_out = -30; k.right_arm_out = -30; k.left_elbow = 130; k.right_elbow = 130; k.head_roll = 8; }), K(3f) },
+            [MotionPreset.phone] = new[] { K(0), K(.5f, k => { k.right_arm_up = 40; k.right_elbow = 150; k.head_roll = 10; }), K(2.6f, k => { k.right_arm_up = 40; k.right_elbow = 150; k.head_roll = 12; k.head_yaw = 10; }), K(3.1f) },
+            [MotionPreset.zombie] = new[] { K(0), K(.5f, k => { k.left_arm_up = 90; k.right_arm_up = 90; k.head_roll = 15; k.chest_pitch = 10; }), K(1.5f, k => { k.left_arm_up = 95; k.right_arm_up = 85; k.head_roll = -15; k.chest_roll = 8; }), K(2.5f, k => { k.left_arm_up = 85; k.right_arm_up = 95; k.head_roll = 15; k.chest_roll = -8; }), K(3f) },
+            [MotionPreset.swim] = new[] { K(0), K(.4f, k => { k.left_arm_up = 180; k.chest_pitch = 15; }), K(.8f, k => { k.right_arm_up = 180; k.left_arm_up = 90; k.chest_pitch = 15; }), K(1.2f, k => { k.left_arm_up = 180; k.right_arm_up = 90; k.chest_pitch = 15; }), K(1.6f, k => { k.right_arm_up = 180; k.chest_pitch = 15; }), K(2f) },
+            [MotionPreset.fix] = new[] { K(0), K(.5f, k => { k.hips_drop = .8f; k.left_knee = 80; k.right_knee = 80; k.chest_pitch = 30; k.right_arm_up = 60; k.right_elbow = 60; }), K(1.2f, k => { k.hips_drop = .8f; k.left_knee = 80; k.right_knee = 80; k.chest_pitch = 30; k.right_arm_up = 70; k.right_elbow = 30; }), K(1.9f, k => { k.hips_drop = .8f; k.left_knee = 80; k.right_knee = 80; k.chest_pitch = 30; k.right_arm_up = 60; k.right_elbow = 60; }), K(2.5f) },
+            [MotionPreset.eat] = new[] { K(0), K(.4f, k => { k.right_arm_up = 60; k.right_elbow = 140; }), K(.7f, k => { k.right_arm_up = 30; k.right_elbow = 90; }), K(1.1f, k => { k.right_arm_up = 60; k.right_elbow = 140; k.head_pitch = -5; }), K(1.6f) },
+            [MotionPreset.harvest] = new[] { K(0), K(.5f, k => { k.chest_pitch = 50; k.hips_drop = .3f; k.left_arm_up = 40; k.right_arm_up = 40; }), K(1.1f, k => { k.chest_pitch = 20; k.left_arm_up = 80; k.right_arm_up = 80; k.left_elbow = 50; k.right_elbow = 50; }), K(1.6f) },
+            [MotionPreset.plant] = new[] { K(0), K(.5f, k => { k.hips_drop = .7f; k.left_knee = 60; k.right_knee = 60; k.chest_pitch = 40; k.right_arm_up = 30; }), K(1.4f, k => { k.hips_drop = .7f; k.left_knee = 60; k.right_knee = 60; k.chest_pitch = 45; k.right_arm_up = 20; k.right_elbow = 30; }), K(2f) },
+            [MotionPreset.water] = new[] { K(0), K(.5f, k => { k.right_arm_up = 60; k.right_elbow = 20; k.chest_pitch = 10; }), K(2f, k => { k.right_arm_up = 50; k.right_elbow = 20; k.chest_pitch = 15; k.chest_roll = 5; }), K(2.5f) },
+            [MotionPreset.chop] = new[] { K(0), K(.4f, k => { k.left_arm_up = 160; k.right_arm_up = 160; k.chest_pitch = -10; }), K(.7f, k => { k.left_arm_up = 40; k.right_arm_up = 40; k.chest_pitch = 30; }), K(1.1f, k => { k.left_arm_up = 160; k.right_arm_up = 160; k.chest_pitch = -10; }), K(1.4f, k => { k.left_arm_up = 40; k.right_arm_up = 40; k.chest_pitch = 30; }), K(1.8f) },
+            [MotionPreset.die] = new[] { K(0), K(.5f, k => { k.hips_drop = 1; k.chest_pitch = 70; k.head_pitch = 40; k.left_knee = 90; k.right_knee = 90; k.left_arm_out = 40; k.right_arm_out = 40; }), K(3f, k => { k.hips_drop = 1; k.chest_pitch = 75; k.head_pitch = 45; k.left_knee = 90; k.right_knee = 90; k.left_arm_out = 40; k.right_arm_out = 40; }), K(3.8f) },
+            [MotionPreset.surprised] = new[] { K(0), K(.15f, k => { k.left_arm_out = 60; k.right_arm_out = 60; k.left_elbow = 60; k.right_elbow = 60; k.lift = .05f; k.head_pitch = -10; }), K(.8f, k => { k.left_arm_out = 50; k.right_arm_out = 50; k.left_elbow = 60; k.right_elbow = 60; }), K(1.2f) },
+            [MotionPreset.knockback] = new[] { K(0), K(.2f, k => { k.chest_pitch = -30; k.head_pitch = -20; k.left_arm_out = 50; k.right_arm_out = 50; k.lift = .05f; }), K(.6f, k => { k.hips_drop = .3f; k.chest_pitch = -10; }), K(1.2f) },
+            [MotionPreset.talk] = new[] { K(0), K(.5f, k => { k.right_arm_up = 50; k.right_elbow = 70; k.head_yaw = 8; }), K(1.2f, k => { k.left_arm_up = 50; k.left_elbow = 70; k.right_arm_up = 30; k.right_elbow = 40; k.head_yaw = -8; }), K(2f, k => { k.right_arm_up = 55; k.right_elbow = 70; k.head_roll = 6; }), K(2.6f) },
+            [MotionPreset.interact] = new[] { K(0), K(.4f, k => { k.right_arm_up = 80; k.right_elbow = 20; k.chest_pitch = 10; }), K(1.2f, k => { k.right_arm_up = 85; k.right_elbow = 15; k.chest_pitch = 12; }), K(1.6f) },
         };
         public static MotionKey[] Get(MotionPreset preset) => presets.TryGetValue(preset, out var keys) ? keys : Array.Empty<MotionKey>();
+        // Captured animations per preset: the CC0 humanoid library (WhiteChibi) and the robot's own clips. Missing ones fall back to keyframes.
+        static readonly Dictionary<MotionPreset, (string[] human, string[] robot, float loop)> clips = new Dictionary<MotionPreset, (string[], string[], float)>
+        {
+            [MotionPreset.jump] = (new[] { "Jump_Start", "Jump_Land" }, new[] { "Jump" }, 0),
+            [MotionPreset.dance] = (new[] { "Dance_Loop" }, new[] { "Dance" }, 4),
+            [MotionPreset.nod] = (new[] { "Yes" }, new[] { "Yes" }, 0),
+            [MotionPreset.shake_head] = (new[] { "Idle_No_Loop" }, new[] { "No" }, 2.5f),
+            [MotionPreset.think] = (new[] { "Idle_FoldArms_Loop" }, null, 3),
+            [MotionPreset.fold_arms] = (new[] { "Idle_FoldArms_Loop" }, null, 3),
+            [MotionPreset.cheer] = (null, new[] { "ThumbsUp" }, 0),
+            [MotionPreset.sit_floor] = (null, new[] { "Sitting", "Standing" }, 0),
+            [MotionPreset.punch] = (new[] { "Punch_Jab", "Punch_Cross" }, new[] { "Punch" }, 0),
+            [MotionPreset.forward_roll] = (new[] { "Roll" }, null, 0),
+            [MotionPreset.push] = (new[] { "Push_Loop" }, null, 2.5f),
+            [MotionPreset.phone] = (new[] { "Idle_TalkingPhone_Loop" }, null, 3),
+            [MotionPreset.zombie] = (new[] { "Zombie_Idle_Loop", "Zombie_Scratch" }, null, 2),
+            [MotionPreset.swim] = (new[] { "Swim_Idle_Loop" }, null, 3),
+            [MotionPreset.fix] = (new[] { "Fixing_Kneeling" }, null, 0),
+            [MotionPreset.eat] = (new[] { "Consume" }, null, 0),
+            [MotionPreset.harvest] = (new[] { "Farm_Harvest" }, null, 0),
+            [MotionPreset.plant] = (new[] { "Farm_PlantSeed" }, null, 0),
+            [MotionPreset.water] = (new[] { "Farm_Watering" }, null, 0),
+            [MotionPreset.chop] = (new[] { "TreeChopping_Loop" }, null, 3),
+            [MotionPreset.die] = (new[] { "Death01", "LayToIdle" }, new[] { "Death", "Standing" }, 0),
+            [MotionPreset.surprised] = (new[] { "Hit_Chest" }, null, 0),
+            [MotionPreset.knockback] = (new[] { "Hit_Knockback" }, null, 0),
+            [MotionPreset.talk] = (new[] { "Idle_Talking_Loop" }, null, 3),
+            [MotionPreset.interact] = (new[] { "Interact" }, null, 0),
+        };
+        static readonly HashSet<string> looping = new HashSet<string> { "Dance" };
+        public static bool Loops(string clip) => looping.Contains(clip);
+        public static float LoopSeconds(MotionPreset preset) => clips.TryGetValue(preset, out var c) ? Mathf.Max(1.5f, c.loop) : 2;
+        public static string[] ClipsFor(MotionPreset preset, ClipAnimator player)
+        {
+            if (!player || !clips.TryGetValue(preset, out var c)) return null;
+            var names = player.Humanoid ? c.human : c.robot;
+            return names != null && names.All(player.Has) ? names : null;
+        }
     }
 }

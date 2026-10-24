@@ -1,5 +1,11 @@
 # 検証結果
 
+## 最新: 2026-10-24 夜 CC0アニメーション・IK・AIループ・小物
+
+- EditMode **78/78成功**: `artifacts/EditMode-20261024-184344.xml`。新規RealismTests（2ボーンIKが届く点に手を置く、403→Chat Completionsへの切替と再試行しない、画像のChat形式変換、done、パンチ・前転・死んだふり・家具の上に置く・握手・触る・小物の語）。
+- PlayMode **21/21成功**: `artifacts/PlayMode-20261024-184419.xml`。新規: WhiteChibiが81クリップを持ち踊りが実クリップで再生、クッションを拾って放物線で投げる、本を家具の上に置く（物理で上に乗る）、握手、AIループが結果を見て2手目を計画しdoneで終わる。画像 `artifacts/previews/Anim-dance.png`、`Prop-on-furniture.png`。
+- 取り込みログ `artifacts/animation-library.log`（81クリップ、WhiteChibi humanScale 0.323）。
+
 ## 最新: 2026-10-24 夕方 端末内の動き解析・物理演算
 
 - EditMode **73/73成功**: `artifacts/EditMode-20261024-174931.xml`。新規LocalMotionParserTests（日常の指示、おもちゃ・順番、部位ポーズ、雑談を命令と誤認しない）、放物線と転がり距離の計算。

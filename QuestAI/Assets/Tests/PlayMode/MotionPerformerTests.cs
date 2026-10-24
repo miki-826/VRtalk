@@ -106,7 +106,7 @@ namespace QuestAI.Tests
             {
                 float rest = rig.hips.position.y, highest = rest; var jump = Step(MotionAction.motion); jump.motion = MotionPreset.jump;
                 performer.Run(Plan(jump), "ジャンプして");
-                for (float end = Time.time + 1.3f; Time.time < end; ) { yield return null; highest = Mathf.Max(highest, rig.hips.position.y); }
+                for (float end = Time.time + 2.6f; Time.time < end; ) { yield return null; highest = Mathf.Max(highest, rig.hips.position.y); }
                 Assert.That(highest, Is.GreaterThan(rest + .1f), "jumped");
                 yield return Done(performer, 5);
             }
@@ -125,6 +125,41 @@ namespace QuestAI.Tests
             finally { Time.timeScale = 1; }
             performer.Run(Plan(Step(MotionAction.follow_user, amount: 20)), "ついてきて"); yield return null; Assert.True(performer.Busy);
             performer.Run(Plan(Step(MotionAction.stop)), "止まって"); Assert.False(performer.Busy); Assert.False(brain.locomotion.Moving); Assert.False(brain.locomotion.Frozen);
+        }
+        [UnityTest] public IEnumerator RealAnimationsPropsFurnitureAndTouch()
+        {
+            yield return Boot(); var app = AppRoot.Instance; Assert.NotNull(app);
+            yield return Start(app, "calm", "LivingRoom");
+            var brain = app.Brain; var performer = brain.performer; var play = brain.playground; var reports = new List<string>(); performer.Report = reports.Add;
+            var clips = brain.GetComponent<ClipAnimator>(); Assert.NotNull(clips, "WhiteChibi plays the CC0 animation library"); Assert.True(clips.Humanoid);
+            foreach (var name in new[] { "Idle_Loop", "Walk_Loop", "Jog_Fwd_Loop", "Walk_Carry_Loop", "OverhandThrow", "Dance_Loop", "Crouch_Idle_Loop", "Punch_Jab", "Death01" }) Assert.True(clips.Has(name), name);
+            var dance = Step(MotionAction.motion, amount: 1); dance.motion = MotionPreset.dance;
+            performer.Run(Plan(dance), "踊って"); yield return new WaitForSeconds(.6f);
+            Assert.That(clips.Current, Is.EqualTo("Dance_Loop")); Assert.True(clips.GestureActive);
+            yield return ApplicationTests.SaveImage(app.Head.GetComponent<Camera>(), "Anim-dance");
+            performer.Stop(); Assert.False(clips.GestureActive);
+            float floor = brain.world.floor.max.y;
+            Time.timeScale = 3;
+            try
+            {
+                performer.Run(Plan(Step(MotionAction.spawn_toy, "クッション"), Step(MotionAction.throw_ball, "クッション", MotionDirection.to_user)), "クッションを投げて");
+                var cushion = (CompanionPlayground.Toy)null; float highest = 0;
+                for (float end = Time.realtimeSinceStartup + 40; performer.Busy && Time.realtimeSinceStartup < end;) { cushion = cushion ?? play.Find("クッション"); if (cushion != null) highest = Mathf.Max(highest, cushion.Center.y - floor); yield return null; }
+                Assert.False(performer.Busy); Assert.NotNull(cushion, string.Join(" / ", reports)); Assert.That(reports, Has.Some.Contains("投げました"), string.Join(" / ", reports)); Assert.That(highest, Is.GreaterThan(.5f));
+
+                var furniture = brain.world.objects.Where(o => o.obstacle && o.bounds.max.y > floor + .3f && o.bounds.max.y < floor + 1 && o.bounds.size.x > .4f && o.bounds.size.z > .4f)
+                    .OrderBy(o => SceneAwareness.FlatDistance(o, brain.transform.position)).First();
+                var put = Step(MotionAction.put_on, "本"); put.toward = furniture.id;
+                performer.Run(Plan(Step(MotionAction.spawn_toy, "本"), put), "本を" + furniture.id + "の上に置いて");
+                yield return Done(performer, 60); yield return new WaitForSeconds(1.5f);
+                var book = play.Find("本"); Assert.NotNull(book, string.Join(" / ", reports));
+                Assert.That(book.item.bounds.min.y, Is.GreaterThan(furniture.bounds.max.y - .05f), "on top of " + furniture.id + ": " + string.Join(" / ", reports));
+                yield return ApplicationTests.SaveImage(app.Head.GetComponent<Camera>(), "Prop-on-furniture");
+
+                performer.Run(Plan(Step(MotionAction.touch, "user")), "握手して"); yield return Done(performer, 30);
+                Assert.That(reports, Has.Some.Contains("触れました"));
+            }
+            finally { Time.timeScale = 1; }
         }
         [UnityTearDown] public IEnumerator Cleanup() { Time.timeScale = 1; if (AppRoot.Instance) Object.Destroy(AppRoot.Instance.gameObject); AppRoot.EditorRepositoryFactory = null; yield return null; }
     }

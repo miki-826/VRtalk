@@ -30,3 +30,9 @@ Meta XR SDK Core/Interactionは205.0.0、Audioは85.0.0。Unity/OpenXR/URP/Meta/
 - `NotoSansJP.otf`: `68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5`
 
 環境音（風・鳥のさえずり・薪の音）は録音素材を使わず `ProceduralAudio.cs` で実行時に合成しています。
+
+## Quaternius Universal Animation Library (Standard 1, 2)
+
+- 作者: Quaternius（https://quaternius.com）。入手: OpenGameArt の Standard 版 zip。
+- ライセンス: CC0 1.0（`QuestAI/Assets/ThirdParty/Quaternius/License.txt`）。
+- 用途: WhiteChibi のHumanoidアニメーション（`UAL1_Standard.fbx`, `UAL2_Standard.fbx`）。
