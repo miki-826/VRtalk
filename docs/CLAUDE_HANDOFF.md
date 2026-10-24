@@ -1,5 +1,9 @@
 # Claude Code 引き継ぎ
 
+## 配布: GitHub（2026-10-24）
+
+非公開リポジトリ https://github.com/miki-826/VRtalk （main）。Releases v1.0.0 に `VRtalk-Quest3S.apk`（SHA256 1CBEC743…A78F）と `VRtalk-Windows.zip`（6ACB7144…60AB）。再ダウンロードしてハッシュ一致を確認済み。検証用コピーQuestAI-PCValidation、Unityキャッシュ、artifacts、ビルド出力は.gitignoreで除外。
+
 ## 最新: 2026-10-24 Jev行動の細分化・ユーザーの動き — 完了
 
 Jevに pace / approach / arrival / walking の4問を追加し、歩行中は3秒ごとに再判断。到着後の座る・しゃがんで見る・指さす（BodySystem.Pose）。UserBodyTracker.cs（GestureDetector）で手振り・指さし・しゃがみ・立ち上がりを検出しJevへ即時送信、Jevなしは端末内ルールで反応。PC代用キー H/F/C。EditMode51/51・PlayMode12/12、Windows版ビルド・smoke成功。APK未再ビルド、Jev実API・Quest実機のジェスチャー精度は未確認。詳細AWARENESS.md。
