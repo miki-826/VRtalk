@@ -10,11 +10,12 @@ namespace QuestAI
     // While it runs, the brain's own autonomy and Jev movement stay out of the way.
     public sealed class MotionPerformer : MonoBehaviour
     {
-        CharacterBrain brain; int version; bool frozen;
+        CharacterBrain brain; int version; bool frozen, travelFailed, hadFailure; Coroutine facing;
         public bool Busy { get; private set; }
         public MotionPlan Last { get; private set; }
         public string Request { get; private set; }
         public MotionStep Current { get; private set; }
+        public int StepIndex { get; private set; } = -1;
         public Action<string> Status, Report;
         // What happened during the current plan (successes and failures), for the AI's next turn.
         public readonly List<string> Results = new List<string>();
@@ -31,41 +32,54 @@ namespace QuestAI
 
         public void Run(MotionPlan plan, string request)
         {
-            Stop(); Results.Clear();
+            // A finished pickup keeps its prop across the next request; an explicit stop still releases it.
+            Cancel(Busy || plan == null || plan.Empty || plan.steps.Any(s => s.action == MotionAction.stop)); Results.Clear();
             if (plan == null || plan.Empty) return;
             if (plan.steps.All(s => s.action == MotionAction.stop)) { Tell("ユーザーに言われて動きを止めました。"); return; }
-            Last = plan; Request = request; Busy = true; int v = ++version;
+            Last = plan; Request = request; Busy = true; hadFailure = false; int v = ++version;
             if (Legs) { Legs.Frozen = true; frozen = true; }
             StartCoroutine(Execute(plan, v));
         }
-        public void Stop()
+        public void Stop() { Cancel(true); Status?.Invoke("動きを止めました。"); }
+        void Cancel(bool releaseHeld)
         {
-            version++; StopAllCoroutines(); Current = null;
-            if (!Busy) return;
+            version++; StopAllCoroutines(); Current = null; StepIndex = -1;
+            facing = null;
             Busy = false;
             if (Legs) { Legs.Stop(); if (frozen) Legs.Frozen = false; }
             frozen = false;
             if (Clips) Clips.StopAction();
-            if (Body) { Body.ClearMotion(); Body.lookPoint = null; Body.leftHandTarget = Body.rightHandTarget = null; if (Body.CurrentPose == BodySystem.Pose.crouch || Body.CurrentPose == BodySystem.Pose.point) Body.SetPose(BodySystem.Pose.stand, null); }
-            if (Toys) Toys.Settle();
+            if (Body) { Body.ClearMotion(); Body.SetHeldArms(null); Body.lookPoint = null; Body.leftHandTarget = Body.rightHandTarget = null; if (Body.CurrentPose == BodySystem.Pose.crouch || Body.CurrentPose == BodySystem.Pose.point) Body.SetPose(BodySystem.Pose.stand, null); }
+            if (Toys && releaseHeld) Toys.Settle();
         }
         IEnumerator Execute(MotionPlan plan, int v)
         {
-            foreach (var step in plan.steps)
+            for (int index = 0; index < plan.steps.Length; index++)
             {
+                var step = plan.steps[index];
                 if (v != version) yield break;
                 if (step.action == MotionAction.stop) break;
-                Current = step;
+                Current = step; StepIndex = index;
+                Body.SetHeldArms(MotionPlans.SupportsHeldArms(step.action) && step.keys?.Length == 1 && MotionPlans.ArmsOnly(step.keys[0]) ? step.keys[0] : null);
+                Status?.Invoke("動き " + (index + 1) + "/" + plan.steps.Length + "：" + MotionPlans.ActionName(step));
+                travelFailed = false;
                 if (step.emotion != Emotion.neutral) brain.ShowEmotion(step.emotion);
                 yield return Perform(step, v);
+                Body.SetHeldArms(null);
+                if (travelFailed) break;
             }
             if (v != version) yield break;
-            Body.ClearMotion(); Current = null; Busy = false;
+            Body.ClearMotion(); Body.leftHandTarget = Body.rightHandTarget = null; Body.lookPoint = null;
+            if (Legs) Legs.Stop();
+            Current = null; StepIndex = -1; Busy = false;
             if (Legs && frozen) Legs.Frozen = false; frozen = false;
-            Tell("頼まれた動き（" + (string.IsNullOrEmpty(plan.summary) ? "動作" : plan.summary) + "）を終えました。" + Seen());
+            Tell((hadFailure ? "一部の動作は実行できませんでした。" : "頼まれた動き（" + (string.IsNullOrEmpty(plan.summary) ? "動作" : plan.summary) + "）を終えました。") + Seen());
+            Status?.Invoke(hadFailure ? "一部の動作はできませんでした。" : "できたよ：" + plan.summary);
         }
         string Seen() { var seen = brain.sight ? brain.sight.VisibleSummary() : Array.Empty<string>(); return seen.Length > 0 ? "今見えているもの: " + string.Join("、", seen.Take(5)) + "。" : ""; }
-        void Fail(string message) { Status?.Invoke(message); Tell("頼まれた動きの一部ができませんでした: " + message); }
+        void Fail(string message) { hadFailure = true; Status?.Invoke(message); Tell("頼まれた動きの一部ができませんでした: " + message); }
+        float ActionRate(float naturalSeconds = 0, int repeat = 1) => Current != null && Current.duration > 0 && naturalSeconds > 0
+            ? naturalSeconds * repeat / Current.duration : Current?.pace == Pace.slow ? .65f : Current?.pace == Pace.hurry ? 1.4f : 1;
 
         // Resolves an id to a world point: the user, a toy or a room object.
         bool Point(string id, out Vector3 point, out SceneObject item)
@@ -108,37 +122,39 @@ namespace QuestAI
                     yield return Walk(World.grid.Snap(Self + Direction(step, Self) * (amount > 0 ? amount : 1)), "指示された場所", null, step.pace, v); break;
                 case MotionAction.turn: yield return Turn(step, v); break;
                 case MotionAction.look_at:
-                    if (Point(string.IsNullOrEmpty(step.target) ? "user" : step.target, out var look, out _)) { Look(look); yield return Hold(amount > 0 ? amount : 2.5f, v); }
-                    else Fail("見る物が見つかりません。");
-                    break;
+                    yield return Track(string.IsNullOrEmpty(step.target) ? "user" : step.target, amount > 0 ? amount : 2.5f, v); break;
                 case MotionAction.sit:
                     if (Point(step.target, out _, out var seat) && seat != null && World != null)
                     {
-                        yield return WalkToObject(seat, step.pace, v); if (v != version) yield break;
+                        yield return WalkToObject(seat, step.pace, v); if (v != version || travelFailed) yield break;
                         brain.Arrive(seat, ArrivalAction.sit); yield return Hold(1.2f, v);
                     }
-                    else yield return Keys(MotionLibrary.Get(MotionPreset.sit_floor), 1, v);
+                    else if (!string.IsNullOrEmpty(step.target)) Fail("座る場所が見つかりません。");
+                    else yield return SitOnFloor(amount, v);
                     break;
                 case MotionAction.crouch:
                     brain.HoldPose(BodySystem.Pose.crouch, Point(step.target, out var low, out _) ? low : (Vector3?)null, amount > 0 ? amount : 4);
-                    yield return Hold(amount > 0 ? Mathf.Min(amount, 3) : 1.5f, v); break;
+                    yield return Hold(amount > 0 ? amount : 1.5f, v); brain.EndPose(); break;
                 case MotionAction.stand: brain.EndPose(); yield return Hold(.5f, v); break;
                 case MotionAction.point:
                     if (Point(string.IsNullOrEmpty(step.target) ? "user" : step.target, out var shown, out _)) { Face(shown); brain.HoldPose(BodySystem.Pose.point, shown, 4); yield return Hold(2.5f, v); }
                     else Fail("指さす物が見つかりません。");
                     break;
                 case MotionAction.gesture:
-                    for (int i = 0; i < Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6); i++) { if (v != version) yield break; Body.Apply(new BehaviorDecision { emotion = Body.CurrentEmotion, gesture = step.gesture }); yield return Hold(2.4f, v); }
+                    int repetitions = Mathf.Clamp(Mathf.RoundToInt(amount), 1, 10); float gestureRate = ActionRate(2.4f, repetitions);
+                    for (int i = 0; i < repetitions; i++) { if (v != version || travelFailed) yield break; Body.PerformGesture(step.gesture, gestureRate); yield return Hold(2.4f / gestureRate, v); }
                     break;
                 case MotionAction.motion:
-                    if (step.motion == MotionPreset.spin) { yield return Spin(Mathf.Clamp(Mathf.RoundToInt(amount), 1, 5), v); break; }
+                    if (step.motion == MotionPreset.sit_floor) { yield return SitOnFloor(step.duration, v); break; }
+                    if (step.motion == MotionPreset.jump || step.motion == MotionPreset.dance || step.motion == MotionPreset.spin || step.motion == MotionPreset.stretch || step.motion == MotionPreset.cheer) brain.EndPose();
+                    if (step.motion == MotionPreset.spin) { yield return Spin(Mathf.Clamp(Mathf.RoundToInt(amount), 1, 10), v); break; }
                     // Real (motion-captured) animation when this model has one, keyframes otherwise.
                     var clipNames = step.motion == MotionPreset.custom ? null : MotionLibrary.ClipsFor(step.motion, Clips);
-                    if (clipNames != null && step.motion == MotionPreset.jump && Clips.Has("Jump_Loop")) { for (int i = 0; i < Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6) && v == version; i++) yield return Jump(v); break; }
-                    if (clipNames != null) { yield return PlayClips(clipNames, MotionLibrary.LoopSeconds(step.motion), Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6), v); break; }
+                    if (clipNames != null && step.motion == MotionPreset.jump && Clips.Has("Jump_Loop")) { for (int i = 0; i < Mathf.Clamp(Mathf.RoundToInt(amount), 1, 10) && v == version; i++) yield return Jump(v); break; }
+                    if (clipNames != null) { yield return PlayClips(clipNames, MotionLibrary.LoopSeconds(step.motion), Mathf.Clamp(Mathf.RoundToInt(amount), 1, 10), v); break; }
                     var keys = step.motion == MotionPreset.custom ? step.keys : MotionLibrary.Get(step.motion);
                     if (keys == null || keys.Length == 0) { Fail("その動きの形がわかりませんでした。"); break; }
-                    yield return Keys(keys, Mathf.Clamp(Mathf.RoundToInt(amount), 1, 6), v); break;
+                    yield return Keys(keys, Mathf.Clamp(Mathf.RoundToInt(amount), 1, 10), v); break;
                 case MotionAction.follow_user: yield return Follow(amount > 0 ? amount : 20, v); break;
                 case MotionAction.wait: yield return Hold(amount > 0 ? amount : 1.5f, v); break;
                 case MotionAction.spawn_toy:
@@ -155,7 +171,7 @@ namespace QuestAI
                     {
                         var held = NeedToy(step.target, null); if (held == null) break;
                         if (held.carried) break;
-                        yield return WalkToToy(held, Self, step.pace, v); if (v != version) yield break;
+                        yield return WalkToToy(held, Self, step.pace, v); if (v != version || travelFailed) yield break;
                         yield return Grab(held, false, v, null); Tell(held.item.id + "を持ち上げました。"); break;
                     }
                 case MotionAction.put_down:
@@ -167,7 +183,7 @@ namespace QuestAI
                 case MotionAction.spin_toy:
                     {
                         var top = NeedToy(step.target, CompanionPlayground.ToyKind.Spinner); if (top == null) break;
-                        yield return WalkToToy(top, Self, step.pace, v); if (v != version) yield break;
+                        yield return WalkToToy(top, Self, step.pace, v); if (v != version || travelFailed) yield break;
                         brain.HoldPose(BodySystem.Pose.crouch, top.Center, 3); yield return Hold(.5f, v); Toys.Spin(top, 30); yield return Hold(1.5f, v); break;
                     }
                 case MotionAction.put_away: if (Toys) Toys.ClearToys(); yield return Hold(.3f, v); break;
@@ -175,8 +191,8 @@ namespace QuestAI
                     {
                         var thing = NeedToy(step.target, null); if (thing == null) break;
                         if (!Point(step.toward, out _, out var furniture) || furniture == null || Toys.Find(step.toward) != null) { Fail("置く場所が見つかりません。"); break; }
-                        if (!thing.carried) { yield return WalkToToy(thing, Self, step.pace, v); if (v != version) yield break; yield return Grab(thing, false, v, null); if (v != version) yield break; }
-                        yield return WalkToObject(furniture, step.pace, v); if (v != version) yield break;
+                        if (!thing.carried) { yield return WalkToToy(thing, Self, step.pace, v); if (v != version || travelFailed) yield break; yield return Grab(thing, false, v, null); if (v != version || travelFailed) yield break; }
+                        yield return WalkToObject(furniture, step.pace, v); if (v != version || travelFailed) yield break;
                         Face(furniture.bounds.center); yield return Hold(.3f, v); yield return Toys.PutOn(thing, furniture);
                         Tell(thing.item.id + "を" + furniture.id + "の上に置きました。"); break;
                     }
@@ -188,7 +204,7 @@ namespace QuestAI
                         if (id == "user") yield return ApproachUser(step.pace, v);
                         else if (nearToy != null) yield return WalkToToy(nearToy, Self, step.pace, v);
                         else yield return WalkToObject(thing, step.pace, v);
-                        if (v != version) yield break;
+                        if (v != version || travelFailed) yield break;
                         // The hand goes to the nearest surface at about chest height (for the user: towards their hand).
                         var hand = id == "user" ? Vector3.Lerp(Self + Vector3.up * .6f, User - Vector3.up * .5f, .6f) : (thing != null ? thing.bounds.ClosestPoint(Self + Vector3.up * .6f) : spot);
                         Face(hand); yield return Hold(.25f, v); Body.rightHandTarget = hand; if (Clips) Clips.Play("Interact");
@@ -214,28 +230,29 @@ namespace QuestAI
 
         IEnumerator Walk(Vector3 goal, string place, Vector3? face, Pace pace, int v)
         {
-            if (!Legs) yield break;
+            if (!Legs) { travelFailed = true; Fail("歩行の準備ができていません。"); yield break; }
+            if (facing != null) { StopCoroutine(facing); facing = null; }
             bool? arrived = null; brain.EndPose();
-            if (!Legs.MoveTo(goal, place, face, ok => arrived = ok, pace)) { Fail(place + "へ行く道がありません。"); yield break; }
+            if (!Legs.MoveTo(goal, place, face, ok => arrived = ok, pace)) { travelFailed = true; Fail(place + "へ行く道がありません。"); yield break; }
             while (arrived == null && v == version) yield return null;
-            if (arrived == false && v == version) Fail(place + "へ行けませんでした。");
+            if (arrived == false && v == version) { travelFailed = true; Fail(place + "へ行けませんでした。"); }
         }
         IEnumerator WalkToObject(SceneObject item, Pace pace, int v)
         {
-            if (World == null || !World.Approach(item, Self, .3f, out var spot)) { Fail(item.id + "のそばに行けません。"); yield break; }
+            if (World == null || !World.Approach(item, Self, .3f, out var spot)) { travelFailed = true; Fail(item.id + "のそばに行けません。"); yield break; }
             yield return Walk(spot, item.id, item.bounds.center, pace, v);
         }
         IEnumerator WalkToToy(CompanionPlayground.Toy toy, Vector3 preferred, Pace pace, int v)
         {
             if (toy.carried) yield break;
             if (SceneAwareness.FlatDistance(toy.item, Self) < .9f && Vector3.Distance(Flat(Self), Flat(preferred)) < .35f) { Face(toy.Center); yield break; }
-            if (!Toys.StandSpot(toy, preferred, out var spot)) { Fail(toy.item.id + "のそばに行けません。"); yield break; }
+            if (!Toys.StandSpot(toy, preferred, out var spot)) { travelFailed = true; Fail(toy.item.id + "のそばに行けません。"); yield break; }
             yield return Walk(spot, toy.item.id, toy.Center, pace, v);
-            if (v == version) { Face(toy.Center); yield return Hold(.35f, v); }
+            if (v == version && !travelFailed) { Face(toy.Center); yield return Hold(.35f, v); }
         }
         IEnumerator ApproachUser(Pace pace, int v)
         {
-            if (World == null) yield break;
+            if (World == null) { travelFailed = true; Fail("この場所では歩けません。"); yield break; }
             Vector3 away = Flat(Self - User); if (away.sqrMagnitude < .04f) away = -brain.transform.forward;
             yield return Walk(World.grid.Snap(Flat(User) + away.normalized * Mathf.Max(.8f, brain.profile.personalSpace + .3f) + Vector3.up * Self.y), "ユーザーのそば", User, pace, v);
         }
@@ -243,23 +260,43 @@ namespace QuestAI
         {
             for (float end = Time.time + seconds; Time.time < end && v == version;)
             {
-                if (World != null && Legs && !Legs.Moving && Vector3.Distance(Flat(Self), Flat(User)) > 1.5f) { Vector3 away = Flat(Self - User).normalized; Legs.MoveTo(World.grid.Snap(Flat(User) + away * 1.0f), "ユーザーのそば", User, null, Pace.normal); }
+                if (World != null && Legs && !Legs.Moving && Vector3.Distance(Flat(Self), Flat(User)) > 1.5f) { Vector3 away = Flat(Self - User).normalized; Legs.MoveTo(World.grid.Snap(Flat(User) + away * 1.0f), "ユーザーのそば", User, null, Current?.pace ?? Pace.normal); }
                 yield return new WaitForSeconds(.5f);
+            }
+            if (Legs) Legs.Stop();
+        }
+        IEnumerator SitOnFloor(float seconds, int v)
+        {
+            brain.EndPose();
+            brain.HoldPose(BodySystem.Pose.floor_sit, null, seconds > 0 ? seconds : float.PositiveInfinity);
+            yield return Hold(seconds > 0 ? seconds : .6f, v);
+            if (seconds > 0 && v == version) brain.EndPose();
+        }
+        IEnumerator Track(string id, float seconds, int v)
+        {
+            if (!Point(id, out var at, out _)) { Fail("見る物が見つかりません。"); yield break; }
+            Look(at);
+            for (float end = Time.time + seconds; Time.time < end && v == version;)
+            {
+                if (!Point(id, out at, out _)) { Fail("見ていた物がなくなりました。"); yield break; }
+                Body.lookPoint = at; yield return null;
             }
         }
         void Face(Vector3 point)
         {
             var d = Flat(point - Self); if (d.sqrMagnitude < .01f) return;
-            StartCoroutine(TurnTo(Quaternion.LookRotation(d.normalized).eulerAngles.y, version));
+            if (facing != null) StopCoroutine(facing);
+            facing = StartCoroutine(TurnTo(Quaternion.LookRotation(d.normalized).eulerAngles.y, version));
         }
         void Look(Vector3 point) { Body.lookPoint = point; Body.Apply(new BehaviorDecision { emotion = Body.CurrentEmotion, gaze = Gaze.@object }); }
         IEnumerator TurnTo(float yaw, int v)
         {
             while (v == version && Mathf.Abs(Mathf.DeltaAngle(brain.transform.eulerAngles.y, yaw)) > 1)
-            { brain.transform.rotation = Quaternion.Euler(0, Mathf.MoveTowardsAngle(brain.transform.eulerAngles.y, yaw, 240 * Time.deltaTime), 0); yield return null; }
+            { brain.transform.rotation = Quaternion.Euler(0, Mathf.MoveTowardsAngle(brain.transform.eulerAngles.y, yaw, 240 * ActionRate() * Time.deltaTime), 0); yield return null; }
         }
         IEnumerator Turn(MotionStep step, int v)
         {
+            if (facing != null) { StopCoroutine(facing); facing = null; }
             float yaw = brain.transform.eulerAngles.y, degrees = step.amount > 0 ? step.amount : 90;
             switch (step.direction)
             {
@@ -270,37 +307,44 @@ namespace QuestAI
             }
             // Large turns are done in pieces so 360° and more really go all the way round.
             float total = step.direction == MotionDirection.left ? -degrees : step.direction == MotionDirection.right ? degrees : Mathf.DeltaAngle(brain.transform.eulerAngles.y, yaw);
+            float rate = ActionRate(Mathf.Abs(total) / 200);
             for (float done = 0; Mathf.Abs(done) < Mathf.Abs(total) - .5f && v == version;)
             {
-                float delta = Mathf.Sign(total) * Mathf.Min(Mathf.Abs(total) - Mathf.Abs(done), 200 * Time.deltaTime);
+                float delta = Mathf.Sign(total) * Mathf.Min(Mathf.Abs(total) - Mathf.Abs(done), 200 * rate * Time.deltaTime);
                 brain.transform.Rotate(0, delta, 0); done += delta; yield return null;
             }
         }
         IEnumerator Spin(int turns, int v)
         {
+            if (facing != null) { StopCoroutine(facing); facing = null; }
+            float rate = ActionRate(360f * turns / 420f);
             for (float done = 0; done < 360 * turns && v == version;)
-            { float delta = Mathf.Min(360 * turns - done, 420 * Time.deltaTime); brain.transform.Rotate(0, delta, 0); done += delta; Body.SetMotion(new MotionKey { left_arm_out = 70, right_arm_out = 70 }); yield return null; }
+            { float delta = Mathf.Min(360 * turns - done, 420 * rate * Time.deltaTime); brain.transform.Rotate(0, delta, 0); done += delta; Body.SetMotion(new MotionKey { left_arm_out = 70, right_arm_out = 70 }); yield return null; }
             Body.ClearMotion();
         }
         IEnumerator Hold(float seconds, int v) { for (float end = Time.time + seconds; Time.time < end && v == version;) yield return null; }
         IEnumerator PlayClips(string[] names, float loop, int repeat, int v)
         {
+            float natural = names.Sum(n => n.EndsWith("_Loop") || MotionLibrary.Loops(n) ? loop : Clips.Length(n));
+            float rate = ActionRate(natural, repeat);
             for (int r = 0; r < repeat && v == version; r++)
                 foreach (var clip in names)
                 {
-                    if (v != version) yield break;
-                    Clips.Play(clip, clip.EndsWith("_Loop") || MotionLibrary.Loops(clip) ? loop : 0);
+                    if (v != version || travelFailed) yield break;
+                    Clips.Play(clip, clip.EndsWith("_Loop") || MotionLibrary.Loops(clip) ? loop / rate : 0, rate);
                     yield return null; while (Clips.GestureActive && v == version) yield return null;
                 }
         }
         // Take-off crouch, a real arc through the air in the airborne pose, then the landing.
         IEnumerator Jump(int v)
         {
-            Clips.Play("Jump_Start"); float crouch = Clips.Length("Jump_Start") * .7f;
-            for (float t = 0; t < crouch && v == version; t += Time.deltaTime) yield return null;
-            Clips.Play("Jump_Loop", .6f);
-            for (float t = 0; t < .5f && v == version; t += Time.deltaTime) { Body.SetMotion(new MotionKey { lift = Mathf.Sin(t / .5f * Mathf.PI) * .35f }); yield return null; }
-            Body.ClearMotion(); Clips.Play("Jump_Land");
+            float crouch = Clips.Length("Jump_Start") * .7f;
+            float rate = ActionRate(crouch + .5f + Clips.Length("Jump_Land"), Mathf.Clamp(Mathf.RoundToInt(Current.amount), 1, 10));
+            Clips.Play("Jump_Start", rate: rate);
+            for (float t = 0; t < crouch && v == version; t += Time.deltaTime * rate) yield return null;
+            Clips.Play("Jump_Loop", .6f / rate, rate);
+            for (float t = 0; t < .5f && v == version; t += Time.deltaTime * rate) { float phase = t / .5f; Body.SetMotion(new MotionKey { lift = 4 * phase * (1 - phase) * .35f }); yield return null; }
+            Body.ClearMotion(); Clips.Play("Jump_Land", rate: rate);
             yield return null; while (Clips.GestureActive && v == version) yield return null;
         }
         // Crouches, reaches both hands to the toy's sides, then lifts it.
@@ -310,7 +354,7 @@ namespace QuestAI
             var side = Flat(brain.transform.right) * Mathf.Clamp(toy.item.bounds.extents.x * .8f, .06f, .25f);
             Body.leftHandTarget = toy.Center - side; Body.rightHandTarget = toy.Center + side;
             yield return Hold(.6f, v);
-            Body.leftHandTarget = Body.rightHandTarget = null; if (v != version) yield break;
+            Body.leftHandTarget = Body.rightHandTarget = null; if (v != version || travelFailed) yield break;
             var taken = Toys.PickUp(toy, single); brain.EndPose(); got?.Invoke(taken);
             yield return Hold(.35f, v);
         }
@@ -319,10 +363,11 @@ namespace QuestAI
         {
             if (keys.Length == 0) yield break;
             float length = Mathf.Max(.2f, keys[keys.Length - 1].time);
+            float rate = ActionRate(length * repeat + .3f);
             for (int r = 0; r < repeat && v == version; r++)
-                for (float t = 0; t <= length && v == version; t += Time.deltaTime) { Body.SetMotion(MotionLibrary.Sample(keys, t)); at?.Invoke(t); yield return null; }
+                for (float t = 0; t <= length && v == version; t += Time.deltaTime * rate) { Body.SetMotion(MotionLibrary.Sample(keys, t)); at?.Invoke(t); yield return null; }
             var last = Body.Motion ?? new MotionKey();
-            for (float t = 0; t < .3f && v == version; t += Time.deltaTime) { Body.SetMotion(MotionKey.Lerp(last, new MotionKey(), t / .3f)); yield return null; }
+            for (float t = 0; t < .3f && v == version; t += Time.deltaTime * rate) { Body.SetMotion(MotionKey.Lerp(last, new MotionKey(), Mathf.SmoothStep(0, 1, t / .3f))); yield return null; }
             if (v == version) Body.ClearMotion();
         }
 
@@ -340,13 +385,13 @@ namespace QuestAI
             if (ball.carried) Toys.PutDown(ball, Self + Flat(brain.transform.forward).normalized * .5f);
             if (step.action == MotionAction.bounce)
             {
-                yield return WalkToToy(ball, Self, step.pace, v); if (v != version) yield break;
-                brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 1.2f); yield return Keys(MotionLibrary.PickUp, 1, v); if (v != version) yield break;
+                yield return WalkToToy(ball, Self, step.pace, v); if (v != version || travelFailed) yield break;
+                brain.HoldPose(BodySystem.Pose.crouch, ball.Center, 1.2f); yield return Keys(MotionLibrary.PickUp, 1, v); if (v != version || travelFailed) yield break;
                 Look(ball.Center); yield return Toys.Bounce(ball, Mathf.Clamp(Mathf.RoundToInt(step.amount), 2, 8)); Tell(ball.item.id + "を弾ませました。"); yield break;
             }
             var target = Destination(step, ball.Center, 2.5f); Vector3 aim = Flat(target - ball.Center).normalized;
             // Stand on the far side of the ball from where it should go.
-            yield return WalkToToy(ball, Flat(ball.Center) - aim * .6f + Vector3.up * Self.y, step.pace, v); if (v != version) yield break;
+            yield return WalkToToy(ball, Flat(ball.Center) - aim * .6f + Vector3.up * Self.y, step.pace, v); if (v != version || travelFailed) yield break;
             aim = Flat(target - ball.Center).normalized; float distance = Vector3.Distance(Flat(ball.Center), Flat(target));
             bool pushed = false;
             if (step.action == MotionAction.kick)
@@ -376,12 +421,12 @@ namespace QuestAI
             if (toy.carried) grip = toy.bodies.Where(b => b.isKinematic).ToList();
             else
             {
-                yield return WalkToToy(toy, Self, step.pace, v); if (v != version) yield break;
-                List<Rigidbody> taken = null; yield return Grab(toy, true, v, g => taken = g); if (v != version || taken == null) yield break;
+                yield return WalkToToy(toy, Self, step.pace, v); if (v != version || travelFailed) yield break;
+                List<Rigidbody> taken = null; yield return Grab(toy, true, v, g => taken = g); if (v != version || travelFailed || taken == null) yield break;
                 grip = taken;
             }
             var target = Destination(step, Self, 3);
-            Face(target); yield return Hold(.45f, v); if (v != version) yield break;
+            Face(target); yield return Hold(.45f, v); if (v != version || travelFailed) yield break;
             float distance = Vector3.Distance(Flat(Self), Flat(target)), flight = Mathf.Clamp(distance / 3.2f, .6f, 1.1f); bool thrown = false;
             if (Clips && Clips.Has("OverhandThrow"))
             {
@@ -399,10 +444,10 @@ namespace QuestAI
             var toy = NeedToy(step.target, null); if (toy == null) yield break;
             if (!toy.carried)
             {
-                yield return WalkToToy(toy, Self, step.pace, v); if (v != version) yield break;
-                yield return Grab(toy, false, v, null); if (v != version) yield break;
+                yield return WalkToToy(toy, Self, step.pace, v); if (v != version || travelFailed) yield break;
+                yield return Grab(toy, false, v, null); if (v != version || travelFailed) yield break;
             }
-            yield return ApproachUser(step.pace, v); if (v != version) yield break;
+            yield return ApproachUser(step.pace, v); if (v != version || travelFailed) yield break;
             // Bend down and set it at the user's feet.
             brain.HoldPose(BodySystem.Pose.crouch, null, 1); yield return Hold(.5f, v);
             Toys.PutDown(toy, Self + Flat(User - Self).normalized * .5f); brain.EndPose();
@@ -412,7 +457,7 @@ namespace QuestAI
         {
             var blocks = NeedToy(step.target, CompanionPlayground.ToyKind.Blocks); if (blocks == null || blocks.kind != CompanionPlayground.ToyKind.Blocks) { if (blocks != null) Fail(blocks.item.id + "は積み木ではありません。"); yield break; }
             if (blocks.carried) Toys.PutDown(blocks, Self + Flat(brain.transform.forward).normalized * .5f);
-            yield return WalkToToy(blocks, Self, step.pace, v); if (v != version) yield break;
+            yield return WalkToToy(blocks, Self, step.pace, v); if (v != version || travelFailed) yield break;
             brain.HoldPose(BodySystem.Pose.crouch, blocks.Center, 30); Look(blocks.Center);
             switch (step.action)
             {

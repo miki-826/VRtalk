@@ -84,7 +84,10 @@ namespace QuestAI
                     // Walk only once roughly facing the next waypoint, so turns read as turns rather than sliding.
                     float facing = Mathf.Abs(Mathf.DeltaAngle(transform.eulerAngles.y, yaw));
                     wanted = facing < 55 ? 1 - facing / 110 : 0;
-                    float step = Mathf.Min(delta.magnitude, speed * PaceScale * wanted * Time.deltaTime);
+                    // Ease the actual displacement with the walk blend, and brake before the last waypoint.
+                    if (index == path.Count - 1) wanted = Mathf.Min(wanted, Mathf.Sqrt(2 * 1.5f * Mathf.Max(0, delta.magnitude - .02f)) / Mathf.Max(.01f, speed * PaceScale));
+                    Speed01 = Mathf.MoveTowards(Speed01, wanted, (wanted > Speed01 ? 2.5f : 4) * Time.deltaTime);
+                    float step = Mathf.Min(delta.magnitude, speed * PaceScale * (facing < 55 ? Speed01 : 0) * Time.deltaTime);
                     transform.position += delta.normalized * step;
                     stuckTime = (transform.position - lastPosition).sqrMagnitude < 1e-8f && wanted > 0 ? stuckTime + Time.deltaTime : 0; lastPosition = transform.position;
                     if (stuckTime > 2) Finish(false);
@@ -103,7 +106,7 @@ namespace QuestAI
                     if (turning) { Turn(Yaw(delta), turnSpeed * .5f); wanted = .25f; }
                 }
             }
-            Speed01 = Mathf.MoveTowards(Speed01, wanted, 4 * Time.deltaTime);
+            if (path == null || wanted == 0) Speed01 = Mathf.MoveTowards(Speed01, wanted, 4 * Time.deltaTime);
         }
         void OnDisable() { Stop(); Stand(); }
     }

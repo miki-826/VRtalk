@@ -76,10 +76,26 @@ namespace QuestAI
             var ptt=ButtonAt("押して話す  /  PTT",0,cursor,430,70,null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
             ButtonAt("文字で話す  ›",454,cursor,434,70,TextChat);cursor+=86;
             ButtonAt("接続を終了",0,cursor,430,64,()=>app.Brain?.Disconnect());ButtonAt("設定",454,cursor,434,64,SettingsMenu);cursor+=84;
-            ButtonAt("いっしょに遊ぶ",0,cursor,430,64,Activities);ButtonAt("メインメニューへ",454,cursor,434,64,app.ReturnMenu);cursor+=84;
+            ButtonAt("いっしょに遊ぶ",0,cursor,280,64,Activities);ButtonAt("動きを試す",304,cursor,280,64,MotionLab);ButtonAt("メインメニューへ",608,cursor,280,64,app.ReturnMenu);cursor+=84;
             captions=TextAt("",content,0,cursor,888,214,28,Ink);ShowStatus("PC: U長押し ／ Quest: Aボタン ／ 画面: PTT長押し");
         }
         static readonly string[] QuickPhrases={"うん","ううん","ありがとう","もう一回言って","ちょっと待って"};
+        string lastDemo = "左手だけを振って";
+        public void MotionLab()
+        {
+            if(!app.Brain)return;
+            Clear("MOTION","動きを試してみよう","接続・APIキーなしで試せます。終わるまで姿勢や足元を見てみよう。",true);
+            string[] labels={"右手を上げたまま歩く","左手だけを振る","床に座る","立ち上がる","3回ジャンプ","お辞儀する","ボールを転がす","もう一度"};
+            string[] commands={"右手を上げたまま2歩前に歩いて","左手だけを振って","床に座って","立って","3回ジャンプして","お辞儀して","ボールを出してこっちに転がして",null};
+            for(int i=0;i<labels.Length;i++)
+            {
+                string command=commands[i];
+                ButtonAt(labels[i],i%2*454,cursor+i/2*84,434,70,()=>{string text=command??lastDemo;if(app.Brain&&app.Brain.PerformLocalMotion(text))lastDemo=text;});
+            }
+            cursor+=336;
+            Note("左右はキャラクター自身の左右です。座った姿勢は「立ち上がる」で戻せます。",78);
+            Button("動きを止める",()=>app.Brain?.performer?.Stop(),true);Back(Session);
+        }
         // Typing for when the user cannot speak: quick phrases send at once, the kana keys build a message. PC keyboards (with IME) also work.
         public void TextChat()
         {
@@ -159,7 +175,9 @@ namespace QuestAI
         void Characters()
         {
             Clear("CHARACTER","今日の話し相手","それぞれの性格・声・記憶を持っています。");
-            foreach(var profile in app.characters){var p=profile;Button((p.id==app.Settings.characterId?"● ":"")+p.displayName,()=>{app.Settings.characterId=p.id;app.SaveSettings();Characters();},p.id==app.Settings.characterId);Note(p.personality,68);}
+            foreach(var profile in app.characters){var p=profile;Button((p.id==app.Settings.characterId?"● ":"")+p.displayName,()=>{app.Settings.characterId=p.id;app.SaveSettings();Characters();},p.id==app.Settings.characterId);}
+            var selected=app.characters.FirstOrDefault(p=>p.id==app.Settings.characterId);
+            if(selected)Note(selected.personality,112);
             Back(MainMenu);
         }
         void Environments()

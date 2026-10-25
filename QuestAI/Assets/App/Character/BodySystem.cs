@@ -13,14 +13,14 @@ namespace QuestAI
         public float lookStrength = 1;
         // World point used when the decision's gaze is "object" (set by the brain from the scene model).
         public Vector3? lookPoint;
-        public enum Pose { stand, sit, crouch, point }
+        public enum Pose { stand, sit, crouch, point, floor_sit }
         public Pose CurrentPose { get; private set; }
         // Height of the hips above the root in the bind pose; seats lower the root by this much.
         public float HipHeight { get; private set; } = .45f;
-        Vector3? poseTarget; float poseWeight; Vector3 hipsRest, hipsWritten, hipsBase;
+        Vector3? poseTarget; float poseWeight; Pose displayedPose; Vector3 hipsRest, hipsWritten, hipsBase;
         readonly Dictionary<Transform,Quaternion> rest = new Dictionary<Transform,Quaternion>();
         BehaviorDecision decision = new BehaviorDecision();
-        float gestureTime, nextBlink, blinkStarted = -10, mouth, gazeYaw, gazePitch, walkPhase;
+        float gestureTime, gestureRate = 1, nextBlink, blinkStarted = -10, mouth, gazeYaw, gazePitch, walkPhase;
         readonly float[] audio = new float[256];
         static readonly string[] EmotionNames=System.Enum.GetNames(typeof(Emotion));
         CharacterLocomotion locomotion; ClipAnimator clips; bool clipGesture;
@@ -47,15 +47,21 @@ namespace QuestAI
         }
         public void Apply(BehaviorDecision value)
         {
-            decision=value;gestureTime=Time.time;
+            decision=value;gestureTime=Time.time;gestureRate=1;
             clipGesture=clips&&clips.Play(ClipFor(value.gesture));
+        }
+        public void PerformGesture(Gesture gesture, float rate)
+        {
+            Apply(new BehaviorDecision { emotion = CurrentEmotion, gesture = gesture });
+            gestureRate = Mathf.Max(.05f, rate);
+            if (clipGesture) clips.Play(ClipFor(gesture), 2.4f / gestureRate, gestureRate);
         }
         // Authored clips stand in for the procedural gestures where a model has a fitting one.
         static string ClipFor(Gesture gesture)
         {
             switch(gesture){case Gesture.wave:return "Wave";case Gesture.nod:case Gesture.big_nod:return "Yes";case Gesture.shrug:return "No";case Gesture.laugh:return "Jump";default:return null;}
         }
-        public void ResetPose() { decision=new BehaviorDecision();mouth=0;StopSpeech();SetPose(Pose.stand,null);ClearMotion(); }
+        public void ResetPose() { decision=new BehaviorDecision();mouth=0;StopSpeech();SetPose(Pose.stand,null);displayedPose=Pose.stand;poseWeight=0;ClearMotion();SetHeldArms(null);heldArmWeight=0; }
         // Changes only the expression, keeping the current gaze and any running motion.
         public void SetEmotion(Emotion emotion){decision=new BehaviorDecision{emotion=emotion,gaze=decision.gaze};}
         public Emotion CurrentEmotion => decision.emotion;
@@ -67,9 +73,13 @@ namespace QuestAI
         public bool Holding;
         public static readonly MotionKey HoldKey=new MotionKey{left_arm_up=65,right_arm_up=65,left_arm_out=-12,right_arm_out=-12,left_elbow=35,right_elbow=35};
         public void ClearMotion()=>motion=null;
+        MotionKey heldArms, lastHeldArms; float heldArmWeight;
+        public MotionKey HeldArms => heldArms;
+        public void SetHeldArms(MotionKey pose) { heldArms = pose; if (pose != null) lastHeldArms = pose; }
         public void SetPose(Pose pose,Vector3? target)
         {
             CurrentPose=pose;poseTarget=target;
+            if(pose!=Pose.stand)displayedPose=pose;
             // Models with a crouch animation use it instead of the procedural fold.
             if(clips){if(pose==Pose.crouch)clips.Hold("Crouch_Idle_Loop");else clips.Release();}
         }
@@ -96,11 +106,12 @@ namespace QuestAI
         {
             if(!rig)return;
             if(!locomotion)locomotion=GetComponent<CharacterLocomotion>();
-            float t=Time.time, age=t-gestureTime, envelope=Mathf.Sin(Mathf.Clamp01(age/2.4f)*Mathf.PI), walk=locomotion?locomotion.Speed01:0;
+            float t=Time.time, age=(t-gestureTime)*gestureRate, envelope=Mathf.Sin(Mathf.Clamp01(age/2.4f)*Mathf.PI), walk=locomotion?locomotion.Speed01:0;
             if(clips){clips.SetSpeed(walk);clips.SetPace(locomotion?locomotion.PaceScale:1);clips.SetGroundSpeed(locomotion?locomotion.GroundSpeed:0);clips.SetHolding(Holding);}
             poseWeight=Mathf.MoveTowards(poseWeight,CurrentPose==Pose.stand||walk>.3f?0:1,Time.deltaTime/.45f);
             // Undo last frame's crouch offset unless a clip already rewrote the hips this frame.
             if(rig.hips){if(!clips)rig.hips.localPosition=hipsRest;else if(rig.hips.localPosition==hipsWritten)rig.hips.localPosition=hipsBase;hipsBase=rig.hips.localPosition;}
+            if(clips&&rig.hips&&rig.animationYawOffset!=0)rig.hips.rotation=Quaternion.AngleAxis(rig.animationYawOffset,transform.up)*rig.hips.rotation;
             float yaw=0,pitch=0;
             Vector3? focus=decision.gaze==Gaze.@object&&lookPoint.HasValue?lookPoint:user?user.position:(Vector3?)null;
             if(focus.HasValue && rig.head && decision.gaze!=Gaze.away)
@@ -149,7 +160,7 @@ namespace QuestAI
                     if(!proceduralGesture||decision.gesture!=Gesture.shrug)Swing(rig.leftArm,-s*.7f);
                 }
             }
-            ApplyPose();ApplyMotion();Reach();
+            ApplyPose();ApplyMotion();ApplyHeldArms();Reach();
             if(t>=nextBlink){blinkStarted=t;nextBlink=t+Random.Range(2.2f,5.5f);}
             float blinkAge=t-blinkStarted,blink=blinkAge<.18f?Mathf.Sin(blinkAge/.18f*Mathf.PI)*100:0;
             float volume=0;if(IsSpeaking){voice.GetOutputData(audio,0);foreach(var sample in audio)volume+=sample*sample;volume=Mathf.Clamp01(Mathf.Sqrt(volume/audio.Length)*9);}
@@ -166,10 +177,14 @@ namespace QuestAI
         void ApplyPose()
         {
             if(poseWeight<=.001f)return;float w=Mathf.SmoothStep(0,1,poseWeight);
-            switch(CurrentPose)
+            // A floor sit unfolds over the same transition interval used to lower the body.
+            switch(CurrentPose==Pose.stand&&displayedPose==Pose.floor_sit?displayedPose:CurrentPose)
             {
                 case Pose.sit:
                     Swing(rig.leftLeg,-80*w);Swing(rig.rightLeg,-80*w);Swing(rig.leftKnee,80*w);Swing(rig.rightKnee,80*w);break;
+                case Pose.floor_sit:
+                    if(rig.hips){rig.hips.position-=Vector3.up*HipHeight*.5f*w;hipsWritten=rig.hips.localPosition;}
+                    Swing(rig.leftLeg,-70*w);Swing(rig.rightLeg,-70*w);Swing(rig.leftKnee,110*w);Swing(rig.rightKnee,110*w);Swing(rig.chest,5*w);break;
                 case Pose.crouch:
                     // Drop the hips, fold the legs and lean in so the head comes close to what is being studied.
                     // Clip models (the robot) have short, mostly hidden legs: a small dip and lean reads better than folded legs.
@@ -198,6 +213,27 @@ namespace QuestAI
             Leg(rig.leftLeg,rig.leftKnee,m.left_leg,m.left_knee);Leg(rig.rightLeg,rig.rightKnee,m.right_leg,m.right_knee);
         }
         static void Turn(Transform bone,Quaternion rotation){if(bone)bone.rotation=rotation*bone.rotation;}
+        void ApplyHeldArms()
+        {
+            heldArmWeight=Mathf.MoveTowards(heldArmWeight,heldArms!=null?1:0,Time.deltaTime/.3f);
+            if(lastHeldArms==null||heldArmWeight<=0)return;
+            var h=lastHeldArms;float w=Mathf.SmoothStep(0,1,heldArmWeight);
+            HeldArm(rig.leftArm,rig.leftForearm,h.left_arm_up,h.left_arm_out,h.left_elbow,-1,w);
+            HeldArm(rig.rightArm,rig.rightForearm,h.right_arm_up,h.right_arm_out,h.right_elbow,1,w);
+        }
+        void HeldArm(Transform upper,Transform lower,float up,float outward,float elbow,float side,float weight)
+        {
+            if(!upper||!lower||(up==0&&outward==0&&elbow==0)||!rest.TryGetValue(lower,out var b))return;
+            Quaternion upperBefore=upper.localRotation,lowerBefore=lower.localRotation;
+            // Aim the actual shoulder-to-elbow chain. Bind-pose Euler offsets differ between models.
+            Vector3 direction=lower.position-upper.position;
+            if(direction.sqrMagnitude<1e-8f)return;
+            Vector3 wanted=Quaternion.AngleAxis(-up,transform.right)*Quaternion.AngleAxis(side*outward,transform.forward)*(-transform.up);
+            upper.rotation=Quaternion.FromToRotation(direction,wanted)*upper.rotation;
+            lower.localRotation=b;
+            lower.rotation=Quaternion.AngleAxis(-elbow,transform.right)*lower.rotation;
+            upper.localRotation=Quaternion.Slerp(upperBefore,upper.localRotation,weight);lower.localRotation=Quaternion.Slerp(lowerBefore,lower.localRotation,weight);
+        }
         Transform Hand(Transform forearm,HumanBodyBones bone)
         {
             if(rig.animator&&rig.animator.isHuman){var hand=rig.animator.GetBoneTransform(bone);if(hand)return hand;}

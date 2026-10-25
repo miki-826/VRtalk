@@ -57,7 +57,7 @@ namespace QuestAI
             var clip = Find(clipName); if (!graph.IsValid() || !clip) return false;
             if (action.IsValid()) { graph.Disconnect(mixer, Action); action.Destroy(); }
             action = Clip(clip); action.SetTime(0); action.SetSpeed(rate); graph.Connect(action, 0, mixer, Action);
-            actionEnd = Time.time + (seconds > 0 ? seconds : clip.length / Mathf.Max(.1f, rate)); Current = clipName;
+            actionEnd = Time.time + (seconds > 0 ? seconds : clip.length / Mathf.Max(.001f, rate)); Current = clipName;
             return true;
         }
         public void StopAction() { actionEnd = Time.time; }

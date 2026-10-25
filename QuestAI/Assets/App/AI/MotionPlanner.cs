@@ -33,6 +33,8 @@ namespace QuestAI
         public string target = "", toward = "";
         public MotionDirection direction;
         public float amount;
+        // Seconds for a motion/gesture, independent of repetitions and distance. Zero keeps its natural length.
+        public float duration;
         public Pace pace = Pace.normal;
         public Gesture gesture;
         public Emotion emotion;
@@ -61,6 +63,30 @@ namespace QuestAI
     {
         public const int MaxSteps = 10, MaxKeys = 16;
         public static readonly string[] ToyKinds = { "ボール", "積み木", "回転おもちゃ", "クッション", "本", "箱", "ぬいぐるみ" };
+        // On these actions a single key is an arm pose held while the action runs; leg animation remains independent.
+        public static bool SupportsHeldArms(MotionAction action) => action == MotionAction.move || action == MotionAction.walk_to || action == MotionAction.approach_user || action == MotionAction.turn || action == MotionAction.follow_user || action == MotionAction.wait || action == MotionAction.look_at;
+        public static bool ArmsOnly(MotionKey key) => key != null && MotionKey.Fields.All(f => f.Name.Contains("arm") || f.Name.Contains("elbow") || f.Name == "time" || (float)f.GetValue(key) == 0)
+            && (key.left_arm_up != 0 || key.left_arm_out != 0 || key.left_elbow != 0 || key.right_arm_up != 0 || key.right_arm_out != 0 || key.right_elbow != 0);
+        public static string ActionName(MotionStep step)
+        {
+            switch (step.action)
+            {
+                case MotionAction.walk_to: return step.target + "へ歩く";
+                case MotionAction.move: return "移動する";
+                case MotionAction.approach_user: return "そばに来る";
+                case MotionAction.turn: return "向きを変える";
+                case MotionAction.sit: return "座る";
+                case MotionAction.stand: return "立ち上がる";
+                case MotionAction.crouch: return "しゃがむ";
+                case MotionAction.follow_user: return "ついて行く";
+                case MotionAction.wait: return "待つ";
+                case MotionAction.look_at: case MotionAction.look_closely: return "よく見る";
+                case MotionAction.point: return "指さす";
+                case MotionAction.motion: return step.motion == MotionPreset.jump ? "ジャンプ" : step.motion == MotionPreset.dance ? "踊る" : "ポーズをとる";
+                case MotionAction.gesture: return "しぐさをする";
+                default: return "おもちゃを動かす";
+            }
+        }
         static readonly JsonSerializerSettings Json = new JsonSerializerSettings { Converters = { new StringEnumConverter() } };
         public static MotionPlan Parse(string json, MotionRequest request) => Validate(JsonConvert.DeserializeObject<MotionPlan>(json, Json), request);
         // Never trusts the model: unknown ids are dropped, amounts and angles are clamped, keyframes are ordered.
@@ -75,7 +101,8 @@ namespace QuestAI
                 step.target = known.Contains(step.target ?? "") ? step.target : "";
                 step.toward = known.Contains(step.toward ?? "") ? step.toward : "";
                 if (float.IsNaN(step.amount) || float.IsInfinity(step.amount)) step.amount = 0;
-                float max = step.action == MotionAction.move ? 5 : step.action == MotionAction.turn ? 1080 : step.action == MotionAction.wait || step.action == MotionAction.follow_user || step.action == MotionAction.look_at || step.action == MotionAction.crouch ? 60 : step.action == MotionAction.stack ? 5 : 10;
+                step.duration = float.IsNaN(step.duration) || float.IsInfinity(step.duration) ? 0 : Mathf.Clamp(step.duration, 0, 30);
+                float max = step.action == MotionAction.move ? 5 : step.action == MotionAction.turn ? 1080 : step.action == MotionAction.wait || step.action == MotionAction.follow_user || step.action == MotionAction.look_at || step.action == MotionAction.crouch || step.action == MotionAction.sit ? 60 : step.action == MotionAction.stack ? 5 : 10;
                 step.amount = Mathf.Clamp(step.amount, 0, max);
                 step.keys = (step.keys ?? Array.Empty<MotionKey>()).Where(k => k != null).Take(MaxKeys).Select(Clamp).OrderBy(k => k.time).ToArray();
             }
@@ -100,11 +127,11 @@ namespace QuestAI
             var step = new
             {
                 type = "object", additionalProperties = false,
-                required = new[] { "action", "target", "toward", "direction", "amount", "pace", "gesture", "emotion", "motion", "keys" },
+                required = new[] { "action", "target", "toward", "direction", "amount", "duration", "pace", "gesture", "emotion", "motion", "keys" },
                 properties = new Dictionary<string, object>
                 {
                     ["action"] = Enum<MotionAction>(), ["target"] = new { type = "string" }, ["toward"] = new { type = "string" }, ["direction"] = Enum<MotionDirection>(),
-                    ["amount"] = number, ["pace"] = Enum<Pace>(), ["gesture"] = Enum<Gesture>(), ["emotion"] = Enum<Emotion>(), ["motion"] = Enum<MotionPreset>(),
+                    ["amount"] = number, ["duration"] = number, ["pace"] = Enum<Pace>(), ["gesture"] = Enum<Gesture>(), ["emotion"] = Enum<Emotion>(), ["motion"] = Enum<MotionPreset>(),
                     ["keys"] = new { type = "array", items = key }
                 }
             };
@@ -116,6 +143,7 @@ target / toward: an id from places or toys, ""user"", or """" for none. For spaw
 Actions:
 - walk_to: walk beside target. approach_user: come close to the user. move: step in direction (forward/back/left/right are the character's own, to_user, away_from_user, to_object with toward) by amount metres (default 1).
 - turn: direction left/right (amount degrees, default 90), back, to_user or to_object.
+- For walk_to, approach_user, move, turn, follow_user, wait or look_at, keys may contain ONE arm-only key to hold while doing the action (e.g. right_arm_up=170 for 「右手を上げたまま歩いて」). All non-arm fields must be zero. Do not silently drop simultaneous requests. Negated actions must not run.
 - look_at: look at target for amount seconds. sit: sit on target seat (no target: sit on the floor). crouch (amount seconds), stand, point at target.
 - gesture: one gesture value, amount repetitions.
 - motion: whole-body movement. Use a preset when it fits (they are real motion-captured animations where available): jump, bow, banzai, clap, dance, stretch, spin (turn around on the spot), shake_head, nod, wave_both, sit_floor, think, cheer, punch, forward_roll, push, fold_arms, phone (talk on a phone), zombie, swim, fix (kneel and repair), eat (eat or drink), harvest, plant (plant seeds), water (water plants), chop (chop wood), die (play dead, then get up), surprised, knockback (get knocked back), talk (talk with gestures), interact (reach out and use something); amount = repetitions. For any other movement use motion=custom and write keys: 2-12 keyframes with time in seconds (ascending, starting at 0), angles in degrees relative to relaxed standing: head_pitch (+looks down), head_yaw (+right), head_roll (+tilts right), chest_pitch (+bends forward), chest_yaw (+twists right), chest_roll (+leans right), left/right_arm_up (0 hanging, 90 forward and level, 180 straight up), left/right_arm_out (0 at the side, 90 level to the side), left/right_elbow (0 straight, 140 fully bent), left/right_leg (+lifts the leg forward), left/right_knee (+bends), hips_drop (0 standing, 1 deep squat), lift (metres the whole body rises, 0.3 = a hop). Left and right are the character's own. End near all zeros unless the pose should stay.
@@ -125,7 +153,7 @@ Actions:
 - put_on: put the target toy/prop on top of the furniture named in toward. touch: walk to target and touch it with a hand.
 Toys and props: ボール, 積み木, 回転おもちゃ, クッション, 本, 箱, ぬいぐるみ — all can be picked up, carried, thrown, fetched and put on furniture; they move with real physics.
 You act in a loop. history lists what earlier turns did and what actually happened (things can fall, miss or be blocked). Return at most 4 steps per turn; set done=false when you need to see the result and continue (e.g. 「全部」, 「〜するまで」, retrying something that failed), done=true when the request is fulfilled or impossible. Never repeat a step that already succeeded.
-If a toy that the request needs is missing, spawn it first. pace: slow/normal/hurry for walking. emotion: the feeling to show. Unused fields: target """", toward """", direction none, amount 0, gesture none, motion custom, keys []. summary: one short Japanese sentence in the character's voice saying what it will do, or why it cannot.";
+If a toy that the request needs is missing, spawn it first. pace: slow/normal/hurry applies to each step's walking AND body action. duration: requested seconds for motion/gesture (0 = natural timing); keep amount for repetitions, metres or degrees. Use exact named sides, angles and timings. Never replace a multi-part request with only its first action. emotion: the feeling to show. Unused fields: target """", toward """", direction none, amount 0, duration 0, gesture none, motion custom, keys []. summary: one short Japanese sentence in the character's voice saying what it will do, or why it cannot.";
     }
 
     // Instruction → motion plan with OpenAI structured output, and descriptions of what the character's eye camera sees.

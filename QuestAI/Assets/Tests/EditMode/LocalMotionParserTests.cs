@@ -62,5 +62,49 @@ namespace QuestAI.Tests
             var odd = Parse("ジャンプして、宇宙人みたいな変なポーズして");
             Assert.True(odd.anyRequest); Assert.False(odd.complete); Assert.That(odd.plan.steps[0].motion, Is.EqualTo(MotionPreset.jump)); Assert.That(odd.unknown, Has.Count.EqualTo(1));
         }
+        [Test] public void ConnectedCommandsKeepOrderAndIndependentPace()
+        {
+            var steps = Steps("ゆっくり2メートル前に歩いて右に90度回って早く3回ジャンプして");
+            Assert.That(steps.Select(s => s.action), Is.EqualTo(new[] { MotionAction.move, MotionAction.turn, MotionAction.motion }));
+            Assert.That(steps.Select(s => s.pace), Is.EqualTo(new[] { Pace.slow, Pace.normal, Pace.hurry }));
+            Assert.That(steps[0].amount, Is.EqualTo(2)); Assert.That(steps[1].amount, Is.EqualTo(90)); Assert.That(steps[2].amount, Is.EqualTo(3));
+            Assert.That(Steps("ボールを出してこっちに転がして").Select(s => s.action), Is.EqualTo(new[] { MotionAction.spawn_toy, MotionAction.roll }));
+            Assert.That(Steps("ジャンプして踊ってお辞儀して").Select(s => s.motion), Is.EqualTo(new[] { MotionPreset.jump, MotionPreset.dance, MotionPreset.bow }));
+            Assert.That(Steps("ジャンプしてみて").Length, Is.EqualTo(1));
+        }
+        [Test] public void SidesDurationsAndAnglesArePreserved()
+        {
+            var wave = Steps("左手だけを振って")[0]; Assert.That(wave.motion, Is.EqualTo(MotionPreset.custom));
+            Assert.That(wave.keys.Max(k => k.left_arm_out), Is.GreaterThan(100)); Assert.That(wave.keys.Max(k => k.right_arm_out), Is.Zero);
+            Assert.That(Steps("5秒間両手を上げて")[0].duration, Is.EqualTo(5));
+            Assert.That(Steps("10秒踊って")[0].duration, Is.EqualTo(10));
+            Assert.That(Steps("右手を90度上げて")[0].keys[1].right_arm_up, Is.EqualTo(90));
+            var simultaneous = Steps("右手を上げたまま左手を振って")[0].keys;
+            Assert.That(simultaneous[2].right_arm_up, Is.EqualTo(170), "The held arm must not swing with the other arm");
+            Assert.That(Steps("三秒待って")[0].amount, Is.EqualTo(3));
+            var turn = Steps("左に180度回って")[0]; Assert.That(turn.action, Is.EqualTo(MotionAction.turn)); Assert.That(turn.direction, Is.EqualTo(MotionDirection.left)); Assert.That(turn.amount, Is.EqualTo(180));
+            Assert.False(Parse(string.Join("、", Enumerable.Repeat("ジャンプして", MotionPlans.MaxSteps + 1))).complete, "Never claim a truncated plan is complete");
+        }
+        [Test] public void HeldArmAndWalkingAreOneSimultaneousAction()
+        {
+            var step=Steps("右手を上げたまま2歩前に歩いて").Single();
+            Assert.That(step.action,Is.EqualTo(MotionAction.move)); Assert.That(step.amount,Is.EqualTo(.8f).Within(.001f));
+            Assert.That(step.keys,Has.Length.EqualTo(1)); Assert.That(step.keys[0].right_arm_up,Is.EqualTo(170)); Assert.True(MotionPlans.ArmsOnly(step.keys[0]));
+            Assert.That(Steps("両手を広げたまま左に90度向いて").Single().keys[0].left_arm_out,Is.EqualTo(90));
+            Assert.False(Parse("右手を上げたままジャンプして").complete,"Unsupported simultaneous motion must not silently lose the held pose");
+        }
+        [Test] public void NegatedLookingDoesNotBecomeAVisualCommand()
+        {
+            foreach(string text in new[]{"外を見ないで","景色を観察しないで","右手を上げないで"})
+            { var result=Parse(text);Assert.True(result.plan.Empty,text);Assert.False(result.anyRequest,text); }
+            var look=Steps("5秒ボールを見て").Single();Assert.That(look.target,Is.EqualTo("ボール1"));Assert.That(look.amount,Is.EqualTo(5));
+            Assert.That(Steps("30秒床に座って").Single().amount,Is.EqualTo(30));
+        }
+        [Test] public void WavingKeepsTheRequestedArmUp()
+        {
+            var keys=Steps("左手だけを振って").Single().keys;
+            foreach(var key in keys.Skip(1).Take(keys.Length-2))
+            {Assert.That(key.left_arm_out,Is.GreaterThan(100));Assert.That(key.left_elbow,Is.InRange(0,120));Assert.That(key.right_arm_out,Is.Zero);}
+        }
     }
 }
