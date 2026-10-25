@@ -18,7 +18,7 @@ namespace QuestAI.Tests
             float deadline=Time.realtimeSinceStartup+20;
             while((!AppRoot.Instance||!AppRoot.Instance.UI||!SceneManager.GetSceneByName("MainMenu").isLoaded)&&Time.realtimeSinceStartup<deadline)yield return null;
             var app=AppRoot.Instance;Assert.NotNull(app);Assert.NotNull(app.UI);yield return null;
-            Assert.That(app.characters.Length,Is.EqualTo(3));Assert.That(app.environments.Length,Is.EqualTo(4));
+            Assert.That(app.characters.Select(p=>p.id),Is.EquivalentTo(new[]{"calm","bright","robot","bunny","cat"}));Assert.That(app.environments.Length,Is.EqualTo(4));
             Assert.True(app.UI.Canvas.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("ひと息")));
             yield return SaveImage(app.Head.GetComponent<Camera>(),"MainMenu-UI");
             app.UI.SettingsMenu();Click(app,"AI");Click(app,"OpenAI API Key",true);

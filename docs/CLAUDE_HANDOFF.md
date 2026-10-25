@@ -1,5 +1,19 @@
 # Claude Code 引き継ぎ
 
+## 2026-10-25: 動作の精度・ももとむぎ
+
+- v1.1.0追加改良: 腕を保った移動・旋回（非motionの `keys` が1個・腕だけのキーなら重ねる）、床座りの保持・時間指定・立つ補間、自然な肘の手振り、移動対象の注視、否定指示を優先。
+- 腕の保持は上腕→肘の実方向で合わせる。骨格の初期回転から加算すると約57度ずれるため、この方法に戻さないこと。5プロフィールで上方向・左水平の向きを検証済み。
+- 最終検証: EditMode83/83、PlayMode26/26、Windows起動、Quest APK v2署名、ZIP整合性成功。アプリの版は1.1.0 / Android versionCode 2。
+- セッションの「動きを試す」→ `WorldUI.MotionLab` / `CharacterBrain.PerformLocalMotion`。サービス接続・録音をせずに端末内で実行。手順数・完了・失敗を表示。
+- 配布パッケージ生成は `tools/package-release.ps1 -Version 1.1.0`。生成したバイナリや検証用シーンはソースコミットに含めず、GitHub Releasesへ配布する。
+- `MOTION_COMPANIONS.md` に今回の実装・言い方の例・制限・生成手順を記載。
+- 読点なしの連続指示、動作別の速さ、秒数・左右・角度、保持する腕と動かす腕の分離を追加。`MotionStep.duration` をAIスキーマにも追加。
+- 実移動の加減速、向き変更の競合と追従終了後の歩行、到達失敗後の物操作を修正。停止指示は自律歩行中にも有効。
+- WhiteChibiのアニメーション適用時に顔が後ろを向く問題を `CharacterRigBinding.animationYawOffset=180` で補正。`BodySystem` が毎フレーム、アニメ適用後・手のIK前に補正する。ロボは0。
+- `CuteCharacterBuilder.BuildAndReview` でWhiteChibiを共有するうさぎ `bunny`（もも）と猫 `cat`（むぎ）を生成。全5プロフィールはResourcesから読み込む。耳・しっぽは `CompanionSecondaryMotion`。既存の2体は見た目を維持。
+- 検証結果・配布ファイルは `VALIDATION.md` の2026-10-25項を参照。実API・Quest実機は未検証。
+
 ## 最新のローカル改修（2026-10-24: Uキー・発話・おもちゃ）
 
 ユーザーの依頼: モデルに合う声、Uで話す、物を置いてキャラクターが遊ぶ。Claudeによる歩行・ユーザー動作・ロボ追加は維持。

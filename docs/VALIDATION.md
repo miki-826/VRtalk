@@ -1,5 +1,30 @@
 # 検証結果
 
+## v1.1.0 最終版（2026-10-25）
+
+- EditMode **83/83成功**: `artifacts/EditMode-20261025-153801.xml`。
+- 最終PlayMode **26/26成功**: `artifacts/PlayMode-v1.1.0-final.xml`。腕を保った歩行、床座りの保持・足の高さ・立つ補間、未接続の動作画面、視線追従、全5プロフィールの腕上げ・水平保持の向き、停止・持ち物を含む。
+- 追加検証で保持する腕の方向が約57度ずれる問題を発見し、初期回転の加算から上腕→肘の実方向を合わせる方式に修正。全5プロフィールの2方向が指示から8度未満のずれであることを検証。
+- 修正後のWindowsビルドと `--desktop-smoke` 成功: `artifacts/windows-build-report.txt`、`artifacts/desktop-smoke-v1.1.0-final.log`。
+- 修正後のQuest用APKビルド・v2署名検証成功。`com.vibecodingclub.questai`、versionName **1.1.0**、versionCode **2**、ARM64。既存版から更新できるようversionCodeを増加。
+- 配布パッケージ: `artifacts/releases/v1.1.0/`。ZIPの展開整合性と両ファイルのSHA256を確認。`tools/package-release.ps1 -Version 1.1.0` で再作成可能。
+- Windows ZIP: **221,120,233 bytes**、SHA256 `030f97a3badf59e74342c0aba88e9a4cd76a6de8e15452e4a8b58624cf29bd55`。
+- Quest APK: **168,971,923 bytes**、SHA256 `fff43354ada4c35086f24a72c380798aeb6562050258b1cac92857747d1488a4`。
+- 新しい確認画像: `artifacts/previews/MotionLab-UI.png`、`Motion-floor-sit.png`、`Motion-held-arms-accurate.png`。GitHub向けの画面説明は `docs/images/` に収録。
+- 実API接続、Quest実機・長時間・72Hzでの測定は未実施。テストはサービスと実機の確認を代替しない。
+
+## 2026-10-25: 動作精度・うさぎと猫
+
+- EditMode **80/80成功**（Android対象）: `artifacts/EditMode-20261025-143628.xml`。区切りなしの連続指示、動作ごとの速さ、左手だけの手振り、秒数・角度、片腕を上げたまま別の腕を振る指示、10動作を超える指示の検出。
+- PlayMode **23/23成功**（Android対象）: `artifacts/PlayMode-companions-final.xml`。既存の会話・部屋切替・歩行・物理・物の操作に加え、追加2体のロード・Humanoid・表情・時間指定・しゃがむ時間・進めないときの把持中止・自律歩行の停止。
+- 最後の持ち物保持修正後、Windows対象でもPlayMode **23/23成功**: `artifacts/PlayMode-companions-delivery.xml`。拾った物を次の依頼でも持ち続け、明示停止では放すことを追加検証。顔の向きは実際に変形したメッシュの中心から確認。
+- 積み木の静止テストは固定待ち時間だけで判断せず、上限時間内に物理演算が静止するまで待って確認（4倍速実行時のフレーム数依存を除去）。
+- Windowsビルド成功: `artifacts/windows-build-report.txt`、約53秒。実行ファイルの `--desktop-smoke` で部屋・UI・キャラクターの初期化成功: `artifacts/desktop-smoke-companions.log`。
+- Quest用APKビルド成功: 約2分51秒、ARM64、v2署名検証成功。`artifacts/android-build.log`。配布APKは168,963,415 bytes、SHA256 `A1EE29011C7A71DD5D717756DAEDA24C2F5954778101D77B3340003F48CDDCB2`。
+- ローカル配布先: `artifacts/companions-2026-10-25/VRtalk-Quest3S.apk` と `VRtalk-Windows.zip`。Windows ZIPは221,117,908 bytes、展開整合性検査成功、SHA256 `C13C98F7AC1FC5FD0D83D84552F1AD3FD440169A42FF623FE20689A50C57A305`。GitHub Releaseは今回変更していません。
+- 目視確認: `artifacts/previews/Companions-lineup.png`、`Companion-bunny-session.png`、`Companion-cat-session.png`、`QuestAI/Builds/Windows/desktop-smoke.png`。元キャラクターと追加2体がユーザーへ顔を向けることを確認。
+- 実APIでの音声認識・会話・画像説明、Quest実機・72Hz負荷は未検証。ローカルのビルド・テスト・描画確認は実機試験の代替ではありません。
+
 ## 最新: 2026-10-24 夜 CC0アニメーション・IK・AIループ・小物
 
 - EditMode **78/78成功**: `artifacts/EditMode-20261024-184344.xml`。新規RealismTests（2ボーンIKが届く点に手を置く、403→Chat Completionsへの切替と再試行しない、画像のChat形式変換、done、パンチ・前転・死んだふり・家具の上に置く・握手・触る・小物の語）。

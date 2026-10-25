@@ -146,7 +146,15 @@ namespace QuestAI
         {
             parsed=LocalMotionParser.Parse(text,MotionContext(text));complete=settings.motionPlanning&&parsed.complete;
             if(!complete||!performer)return null;
-            performer.Run(parsed.plan,text);StatusChanged?.Invoke("動き: "+parsed.plan.summary);return parsed.plan;
+            StatusChanged?.Invoke("動き: "+parsed.plan.summary);performer.Run(parsed.plan,text);return parsed.plan;
+        }
+        // Explicit local controls run without connecting voice/AI services or recording the microphone.
+        public bool PerformLocalMotion(string text)
+        {
+            if(!initialized||!performer||Phase==ConversationPhase.Paused)return false;
+            var parsed=LocalMotionParser.Parse(text,MotionContext(text));
+            if(!parsed.complete){StatusChanged?.Invoke("この動きは端末内で理解できませんでした。別の言い方で試してください。");return false;}
+            lastInteraction=Time.time;performer.Run(parsed.plan,text);return true;
         }
         // Looks with the eye camera and tells Live what was seen, so the spoken answer is about the real view.
         public async Task LookClosely(string question)

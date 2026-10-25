@@ -21,6 +21,8 @@ namespace QuestAI
         }
         static readonly Regex Splitter = new Regex("[。、,，!！?？\n]|そして|それから|その後|そのあと|次に|つぎに|あとで");
         static readonly Regex Number = new Regex(@"(\d+(?:\.\d+)?|[一二三四五六七八九十百]+|半)\s*(回|かい|歩|ほ|メートル|ｍ|m|度|ど|段|だん|個|こ|秒|びょう)");
+        // Split connected imperatives, but leave auxiliary endings (てみて/でください) and simultaneous poses intact.
+        static readonly Regex Connected = new Regex(@"(?<=(?:して|んで|いて|いで|って|えて|けて|げて|せて|めて|べて|れて|きて|来て|見て|みて))(?<!急いで)(?<!いそいで)(?=(?:ゆっくり|そっと|急いで|早く|次|その|それ|こっち|あっち|[左右両前後]|\d|[一二三四五六七八九十]|ジャンプ|じゃんぷ|お辞儀|踊|おど|拍手|手を|腕を|頭を|首を|体を|足を|座|すわ|立|たち|しゃが|歩|あるい|走|はし|回|まわ|向|むい|ボール|積み木|クッション|本を|箱を|ぬいぐるみ|窓|暖炉|ソファ|椅子|テーブル|外を|拾|ひろ|投げ|なげ|蹴|転が|ころが|崩|くず|並べ|待|まって|止ま|ストップ))");
         static bool Has(string text, params string[] words) => words.Any(text.Contains);
 
         public static Result Parse(string text, MotionRequest context)
@@ -29,21 +31,25 @@ namespace QuestAI
             text = (text ?? "").Normalize(NormalizationForm.FormKC).Replace(" ", "").Replace("　", "");
             // 「積んでから崩して」: keep the て so each half still reads as a request.
             text = Regex.Replace(text, "(て|で)から", "$1、");
+            text = Connected.Replace(text, "、");
             if (text.Length == 0) return result;
-            string lastToy = null; Pace pace = Has(text, "ゆっくり", "そっと", "のんびり") ? Pace.slow : Has(text, "急いで", "いそいで", "走って", "はしって", "早く", "はやく", "全速") ? Pace.hurry : Pace.normal;
-            Emotion mood = Has(text, "嬉しそう", "うれしそう", "楽しそう", "たのしそう", "笑顔", "ニコニコ") ? Emotion.happy : Has(text, "悲しそう", "かなしそう", "しょんぼり") ? Emotion.sad : Has(text, "元気", "げんき", "ノリノリ") ? Emotion.excited : Emotion.neutral;
+            string lastToy = null;
             foreach (var raw in Splitter.Split(text))
             {
                 var clause = raw.Trim(); if (clause.Length == 0) continue;
+                if (Has(clause, "ないで", "なくていい", "しなくて") && !Has(clause, "動かないで", "うごかないで")) continue;
                 bool request = IsRequest(clause), seeing = Has(clause, "見える", "みえる", "何が見", "なにが見", "なにがみ", "何見て", "何を見", "これ見て", "あれ見て", "よく見て", "見てみて", "周り見", "まわり見", "観察", "景色", "けしき", "外を見", "そとを見", "様子を見");
                 if (!request && !seeing) continue;
                 result.anyRequest = true;
+                Pace pace = Has(clause, "ゆっくり", "そっと", "のんびり") ? Pace.slow : Has(clause, "急いで", "いそいで", "走って", "はしって", "早く", "はやく", "全速") ? Pace.hurry : Pace.normal;
+                Emotion mood = Has(clause, "嬉しそう", "うれしそう", "楽しそう", "たのしそう", "笑顔", "ニコニコ") ? Emotion.happy : Has(clause, "悲しそう", "かなしそう", "しょんぼり") ? Emotion.sad : Has(clause, "元気", "げんき", "ノリノリ") ? Emotion.excited : Emotion.neutral;
                 var made = Clause(clause, context, ref lastToy, out string said);
                 if (made.Count == 0) { result.unknown.Add(clause); continue; }
-                foreach (var step in made) { if (step.pace == Pace.normal) step.pace = pace; if (step.emotion == Emotion.neutral) step.emotion = mood; }
+                foreach (var step in made) { if (step.pace == Pace.normal) step.pace = pace; if (step.emotion == Emotion.neutral) step.emotion = mood; if (step.action == MotionAction.motion || step.action == MotionAction.gesture) step.duration = Amount(clause, "秒", "びょう"); }
                 steps.AddRange(made); summary.Add(said);
             }
             result.plan = MotionPlans.Validate(new MotionPlan { steps = steps.ToArray(), summary = string.Join("、", summary) }, context);
+            if (steps.Count > MotionPlans.MaxSteps) result.unknown.Add("動作が一度に実行できる数を超えています");
             result.complete = result.anyRequest && result.unknown.Count == 0 && !result.plan.Empty;
             return result;
         }
@@ -124,8 +130,22 @@ namespace QuestAI
         static List<MotionStep> Clause(string c, MotionRequest context, ref string lastToy, out string said)
         {
             var steps = new List<MotionStep>(); said = c;
+            int heldAt = c.IndexOf("まま", StringComparison.Ordinal);
+            if (heldAt >= 0)
+            {
+                var held = BodyPose(c.Substring(0, heldAt)); string rest = c.Substring(heldAt + 2);
+                if (held != null && held.Length == 4 && MotionPlans.ArmsOnly(held[1]) && rest.Length > 0)
+                {
+                    var following = Clause(rest, context, ref lastToy, out string description);
+                    if (following.Count > 0 && following.All(s => MotionPlans.SupportsHeldArms(s.action)))
+                    { foreach (var step in following) step.keys = new[] { Copy(held[1]) }; said = c.Substring(0, heldAt + 2) + description; return following; }
+                    // Body-only combinations are handled below. Other simultaneous actions need the AI planner.
+                    if (BodyPose(rest) == null) return steps;
+                }
+            }
             float count = Amount(c, "回", "かい");
             if (Has(c, "止ま", "とまって", "とまれ", "ストップ", "すとっぷ", "やめ", "止めて", "じっとして", "動かないで", "うごかないで") && c.Length <= 12) { steps.Add(Step(MotionAction.stop)); said = "止まる"; return steps; }
+            if (Has(c, "待って", "まって", "待機", "そのままでいて")) { steps.Add(Step(MotionAction.wait, amount: Amount(c, "秒", "びょう"))); said = "待つ"; return steps; }
             if (Has(c, "見える", "みえる", "何が見", "なにが見", "なにがみ", "何見て", "何を見", "これ見て", "あれ見て", "よく見て", "見てみて", "周り見", "まわり見", "観察", "景色", "けしき", "外を見", "そとを見", "様子を見"))
             { steps.Add(Step(MotionAction.look_closely, Mentioned(c, context))); said = "よく見る"; return steps; }
             if (Has(c, "片づけ", "片付け", "かたづけ", "しまって", "お片付け")) { steps.Add(Step(MotionAction.put_away)); said = "おもちゃを片づける"; return steps; }
@@ -180,18 +200,20 @@ namespace QuestAI
             { steps.Add(Step(MotionAction.approach_user)); said = "そばに来る"; return steps; }
             if (Has(c, "離れ", "はなれ", "下がって", "さがって", "あっち行", "あっちへ行"))
             { steps.Add(Step(MotionAction.move, "", MotionDirection.away_from_user, Amount(c, "メートル", "m", "ｍ") is float m && m > 0 ? m : 1)); said = "離れる"; return steps; }
-            if (Has(c, "進ん", "すすん", "進め", "歩いて", "あるいて", "歩こう", "移動", "動いて", "うごいて", "前に出", "まえにで", "前へ", "下がって", "バック") && !Has(c, "手", "腕", "足", "脚"))
+            if (Has(c, "進ん", "すすん", "進め", "歩いて", "あるいて", "歩こう", "走って", "はしって", "移動", "動いて", "うごいて", "前に出", "まえにで", "前へ", "下がって", "バック") && !Has(c, "手", "腕", "足", "脚"))
             {
                 var dir = Direction(c, out string toward, context); if (dir == MotionDirection.none) dir = MotionDirection.forward;
                 float meters = Amount(c, "メートル", "m", "ｍ"); if (meters <= 0) meters = Amount(c, "歩", "ほ") * .4f; if (meters <= 0) meters = 1;
                 steps.Add(Step(MotionAction.move, "", dir, meters, toward)); said = "歩く"; return steps;
             }
+            if (Has(c, "回って", "まわって", "回転", "ターン") && (Has(c, "右", "みぎ", "左", "ひだり") || Amount(c, "度", "ど") > 0))
+            { var dir = Has(c, "左", "ひだり") ? MotionDirection.left : MotionDirection.right; steps.Add(Step(MotionAction.turn, "", dir, Amount(c, "度", "ど") is float angle && angle > 0 ? angle : count > 0 ? count * 360 : 90)); said = "向きを変える"; return steps; }
             if (Has(c, "一回転", "回って", "まわって", "くるっと", "くるくる", "くるりと", "回転して", "スピン", "ターン", "回ろう"))
             { var spin = Step(MotionAction.motion, "", MotionDirection.none, count > 0 ? count : 1); spin.motion = MotionPreset.spin; steps.Add(spin); said = "くるっと回る"; return steps; }
             if (Has(c, "向いて", "むいて", "向け", "向こう向", "振り向", "ふりむ", "見て", "みて") && !Has(c, "手", "腕", "足", "脚", "頭", "首"))
             {
                 var dir = Direction(c, out string toward, context);
-                if (Has(c, "見て", "みて") && !Has(c, "向")) { steps.Add(Step(MotionAction.look_at, dir == MotionDirection.to_object ? toward : "user", MotionDirection.none, 3)); said = "見る"; return steps; }
+                if (Has(c, "見て", "みて") && !Has(c, "向")) { float seconds=Amount(c,"秒","びょう"); steps.Add(Step(MotionAction.look_at, place ?? (dir == MotionDirection.to_object ? toward : "user"), MotionDirection.none, seconds > 0 ? seconds : 3)); said = "見る"; return steps; }
                 if (Has(c, "振り向", "ふりむ")) dir = MotionDirection.to_user;
                 if (dir != MotionDirection.none) { steps.Add(Step(MotionAction.turn, "", dir, Amount(c, "度", "ど"), toward)); said = "向きを変える"; return steps; }
             }
@@ -199,7 +221,7 @@ namespace QuestAI
             {
                 // Without a named seat the comfiest one in the room is used; 「床に」 sits on the floor.
                 string seat = Has(c, "床", "ゆか", "地面", "その場") ? "" : place ?? Seats.Select(label => (context?.places ?? Array.Empty<string>()).FirstOrDefault(id => id.TrimEnd("0123456789".ToCharArray()) == label)).FirstOrDefault(id => id != null) ?? "";
-                steps.Add(Step(MotionAction.sit, seat)); said = "座る"; return steps;
+                steps.Add(Step(MotionAction.sit, seat, amount: Amount(c, "秒", "びょう"))); said = "座る"; return steps;
             }
             if (Has(c, "しゃが", "かが", "屈", "しゃがみ")) { steps.Add(Step(MotionAction.crouch, place ?? "", MotionDirection.none, Amount(c, "秒", "びょう"))); said = "しゃがむ"; return steps; }
             if (Has(c, "立って", "たって", "立ち上が", "たちあが", "起きて", "おきて", "立とう") && !Has(c, "片足", "かたあし")) { steps.Add(Step(MotionAction.stand)); said = "立つ"; return steps; }
@@ -208,7 +230,7 @@ namespace QuestAI
             // Ready-made whole-body motions and small gestures.
             var preset = Preset(c);
             if (preset.HasValue) { var m = Step(MotionAction.motion, "", MotionDirection.none, count > 0 ? count : 1); m.motion = preset.Value; steps.Add(m); said = c; return steps; }
-            var gesture = GestureIn(c);
+            var gesture = Has(c, "左手", "右手", "左腕", "右腕") ? (Gesture?)null : GestureIn(c);
             if (gesture.HasValue) { var g = Step(MotionAction.gesture, "", MotionDirection.none, count > 0 ? count : 1); g.gesture = gesture.Value; steps.Add(g); said = c; return steps; }
 
             // Free body-part poses: 「右手を上げて」「左足を上げたまま」「頭を右に傾けて」「両手を広げて」…
@@ -263,16 +285,27 @@ namespace QuestAI
         public static MotionKey[] BodyPose(string c)
         {
             var pose = new MotionKey(); bool any = false, swing = false, circle = false;
+            var swung = new HashSet<string>();
             foreach (var part in Regex.Split(c, "まま|ながら"))
             {
                 if (part.Length == 0) continue;
-                any |= Part(part, pose, ref swing, ref circle);
+                var before = Copy(pose); bool partSwing = false, partCircle = false;
+                any |= Part(part, pose, ref partSwing, ref partCircle);
+                if (partSwing) foreach (var field in MotionKey.Fields)
+                    if (field.Name != "time" && (float)field.GetValue(before) != (float)field.GetValue(pose)) swung.Add(field.Name);
+                swing |= partSwing; circle |= partCircle;
             }
             if (!any) return null;
             float hold = 2.5f; var rest = new MotionKey();
             if (swing)
             {
-                var a = Copy(pose); var b = Copy(pose); Scale(b, -.35f);
+                var a = Copy(pose); var b = Copy(pose);
+                foreach (var field in MotionKey.Fields) if (swung.Contains(field.Name))
+                {
+                    float value = (float)field.GetValue(b);
+                    // A wave keeps the upper arm raised and bends the elbow, rather than flinging the whole arm down.
+                    field.SetValue(b, field.Name.EndsWith("_arm_out") ? value * .82f : field.Name.EndsWith("_elbow") ? Math.Min(120, value + 40) : value * -.35f);
+                }
                 return new[] { new MotionKey(), At(a, .35f), At(b, .7f), At(Copy(a), 1.05f), At(Copy(b), 1.4f), At(Copy(a), 1.75f), At(rest, 2.15f) };
             }
             if (circle)
@@ -286,10 +319,10 @@ namespace QuestAI
         }
         static MotionKey At(MotionKey k, float time) { k.time = time; return k; }
         static MotionKey Copy(MotionKey k) { var c = new MotionKey(); foreach (var f in MotionKey.Fields) f.SetValue(c, f.GetValue(k)); return c; }
-        static void Scale(MotionKey k, float s) { foreach (var f in MotionKey.Fields) if (f.Name != "time" && f.Name != "hips_drop" && f.Name != "lift") f.SetValue(k, (float)f.GetValue(k) * s); }
         // One phrase such as 「右手を上げ」: finds the body part, the side and the verb and writes it into the pose.
         static bool Part(string p, MotionKey k, ref bool swing, ref bool circle)
         {
+            float degrees = Amount(p, "度", "ど");
             bool right = Has(p, "右", "みぎ"), left = Has(p, "左", "ひだり"), both = Has(p, "両", "りょう");
             bool arm = Has(p, "手", "腕", "うで", "てを", "ひじ", "肘"), leg = Has(p, "足", "脚", "あし", "ひざ", "膝", "もも"), head = Has(p, "頭", "首", "あたま", "くび", "顔", "かお"), body = Has(p, "体", "からだ", "腰", "こし", "上半身", "背中", "せなか", "胸");
             bool up = Has(p, "上げ", "あげ", "挙げ", "上に", "うえに", "高く"), down = Has(p, "下げ", "さげ", "下ろ", "おろ", "下に"), wide = Has(p, "横", "よこ", "広げ", "ひろげ", "開い", "ひらい");
@@ -304,8 +337,8 @@ namespace QuestAI
             {
                 if (shake) { if (r) { k.right_arm_out = 140; k.right_elbow = 40; } if (l) { k.left_arm_out = 140; k.left_elbow = 40; } swing = true; return true; }
                 if (turn) { if (r) k.right_arm_up = 180; if (l) k.left_arm_up = 180; circle = true; return true; }
-                float lift = up ? (wide ? 0 : 170) : forward ? 90 : down ? 0 : bend ? 60 : wide ? 0 : -1;
-                float outward = wide ? (up ? 150 : 90) : 0, elbow = bend ? 120 : 0;
+                float lift = up ? (wide ? 0 : degrees > 0 ? Math.Min(180, degrees) : 170) : forward ? 90 : down ? 0 : bend ? 60 : wide ? 0 : -1;
+                float outward = wide ? (degrees > 0 ? Math.Min(180, degrees) : up ? 150 : 90) : 0, elbow = bend ? (degrees > 0 ? Math.Min(150, degrees) : 120) : 0;
                 if (lift < 0 && outward == 0 && elbow == 0) return false;
                 if (r) { k.right_arm_up = Math.Max(0, lift); k.right_arm_out = outward; k.right_elbow = elbow; }
                 if (l) { k.left_arm_up = Math.Max(0, lift); k.left_arm_out = outward; k.left_elbow = elbow; }
@@ -314,7 +347,7 @@ namespace QuestAI
             if (leg)
             {
                 if (shake) { if (r) k.right_leg = 50; if (l && !r) k.left_leg = 50; swing = true; return true; }
-                float lift = up ? 70 : forward ? 45 : bend ? 30 : back ? -35 : -1; float knee = bend ? 90 : up ? 25 : 0;
+                float lift = up ? (degrees > 0 ? Math.Min(100, degrees) : 70) : forward ? 45 : bend ? 30 : back ? -35 : -1; float knee = bend ? (degrees > 0 ? Math.Min(140, degrees) : 90) : up ? 25 : 0;
                 if (lift < -30 && !back) return false;
                 // Both legs cannot leave the floor: 「両足を曲げて」 is a squat.
                 if (both) { k.hips_drop = Math.Max(k.hips_drop, bend || up ? .6f : 0); k.left_knee = k.right_knee = knee; return true; }
@@ -325,17 +358,17 @@ namespace QuestAI
             {
                 if (shake) { k.head_yaw = 30; swing = true; return true; }
                 if (turn) { k.head_roll = 20; swing = true; return true; }
-                if (tilt) { k.head_roll = left ? -25 : 25; return true; }
+                if (tilt) { k.head_roll = (left ? -1 : 1) * (degrees > 0 ? Math.Min(45, degrees) : 25); return true; }
                 if (Has(p, "下", "した", "うつむ", "見下ろ", "みおろ")) { k.head_pitch = 35; return true; }
                 if (Has(p, "上", "うえ", "見上げ", "みあげ")) { k.head_pitch = -30; return true; }
-                if (right || left) { k.head_yaw = right ? 45 : -45; return true; }
+                if (right || left) { k.head_yaw = (right ? 1 : -1) * (degrees > 0 ? Math.Min(75, degrees) : 45); return true; }
                 return look;
             }
             if (body)
             {
                 if (shake) { k.chest_roll = 15; swing = true; return true; }
-                if (twist || turn) { k.chest_yaw = left ? -40 : 40; return true; }
-                if (tilt && (right || left)) { k.chest_roll = left ? -22 : 22; return true; }
+                if (twist || turn) { k.chest_yaw = (left ? -1 : 1) * (degrees > 0 ? Math.Min(70, degrees) : 40); return true; }
+                if (tilt && (right || left)) { k.chest_roll = (left ? -1 : 1) * (degrees > 0 ? Math.Min(45, degrees) : 22); return true; }
                 if (back) { k.chest_pitch = -22; k.head_pitch = -15; return true; }
                 if (bend || tilt || forward || Has(p, "前屈", "ぜんくつ")) { k.chest_pitch = 50; k.head_pitch = 15; return true; }
                 if (Has(p, "低く", "ひくく", "沈め", "しずめ")) { k.hips_drop = .7f; k.left_knee = k.right_knee = 60; return true; }

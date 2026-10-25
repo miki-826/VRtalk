@@ -77,6 +77,7 @@ namespace QuestAI.Editor
             {
                 var rig = root.GetComponent<CharacterRigBinding>(); var animator = rig ? rig.animator : root.GetComponentInChildren<Animator>();
                 if (!animator || !animator.avatar || !animator.avatar.isHuman) throw new Exception("WhiteChibi has no humanoid Animator");
+                if (rig) { rig.hips = animator.GetBoneTransform(HumanBodyBones.Hips); rig.animationYawOffset = 180; }
                 animator.runtimeAnimatorController = null; animator.applyRootMotion = false; animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
                 var player = root.GetComponent<ClipAnimator>(); if (!player) player = root.AddComponent<ClipAnimator>();
                 player.animator = animator; player.idle = clips["Idle_Loop"]; player.walk = clips["Walk_Loop"];

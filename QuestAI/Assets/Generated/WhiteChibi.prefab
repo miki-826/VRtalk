@@ -2287,7 +2287,8 @@ MonoBehaviour:
   rightLeg: {fileID: 0}
   leftKnee: {fileID: 0}
   rightKnee: {fileID: 0}
-  hips: {fileID: 0}
+  hips: {fileID: 6519883052586259669}
+  animationYawOffset: 180
   faceMeshes:
   - {fileID: 5500716739021413644}
   - {fileID: 4972668307245522158}
