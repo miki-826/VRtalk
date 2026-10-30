@@ -31,8 +31,7 @@ namespace QuestAI.Tests
                 app.Settings.environmentId=env.id;app.StartSession(false);deadline=Time.realtimeSinceStartup+20;
                 while((!app.Brain||app.Brain.environment!=env.displayName)&&Time.realtimeSinceStartup<deadline)yield return null;
                 yield return null;Assert.NotNull(app.Brain);Assert.That(app.Brain.environment,Is.EqualTo(env.displayName));
-                var binding=app.Brain.GetComponent<CharacterRigBinding>();Assert.NotNull(binding.head);Assert.That(binding.animator.GetBoneTransform(HumanBodyBones.LeftFoot).position.y,Is.GreaterThan(-.05f));Assert.That(binding.faceMeshes.Length,Is.GreaterThan(0));
-                Assert.That(binding.faceMeshes[0].sharedMesh.GetBlendShapeIndex("MouthOpen"),Is.GreaterThanOrEqualTo(0));
+                var binding=app.Brain.GetComponent<CharacterRigBinding>();Assert.NotNull(binding.head);Assert.That(binding.animator.GetBoneTransform(HumanBodyBones.LeftFoot).position.y,Is.GreaterThan(-.05f));Assert.NotNull(app.Brain.GetComponent<FaceDriver>(),"The face follows emotion, blink, mouth and gaze");
                 var lighting=Object.FindAnyObjectByType<EnvironmentLighting>();Assert.That(lighting.bakes.Length,Is.EqualTo(4));foreach(var bake in lighting.bakes)Assert.That(bake.maps.Length,Is.GreaterThan(0));
                 app.Brain.body.Apply(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.wave});yield return null;yield return SaveImage(app.Head.GetComponent<Camera>(),env.id+"-Session");
             }

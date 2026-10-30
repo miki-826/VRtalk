@@ -13,6 +13,9 @@ namespace QuestAI
         Text jevStatus;float nextJevStatus;
         public bool IsEditing { get; private set; }
         bool secretEditing;Action refreshEdit,submitEdit;
+        // Quest's own keyboard (kana-kanji conversion, letters, dictation) stands in for the PC keyboard and IME.
+        TouchScreenKeyboard systemKeyboard;int editLimit=4096;
+        static bool SystemKeyboard=>TouchScreenKeyboard.isSupported;
         float cursor,captionTime;bool sessionPage;Action returnPage;string editValue;Text editText;
         static readonly Color Ink=new Color(.91f,.94f,.90f),Muted=new Color(.64f,.74f,.70f),Panel=new Color(.045f,.095f,.087f,.97f),Accent=new Color(.88f,.69f,.41f);
         public Canvas Canvas => canvas;
@@ -34,7 +37,7 @@ namespace QuestAI
         }
         void Clear(string eyebrow,string title,string description,bool small=false)
         {
-            IsEditing=false;editValue="";editText=null;refreshEdit=submitEdit=null;Input.imeCompositionMode=IMECompositionMode.Auto;
+            IsEditing=false;editValue="";editText=null;refreshEdit=submitEdit=null;Input.imeCompositionMode=IMECompositionMode.Auto;CloseSystemKeyboard();
             if(microphoneCheck)microphoneCheck.Stop();
             foreach(Transform child in content){child.gameObject.SetActive(false);Destroy(child.gameObject);}sessionPage=small;
             TextAt(eyebrow,content,0,0,888,34,21,Accent);TextAt(title,content,0,44,888,80,48,Ink);TextAt(description,content,0,131,888,65,24,Muted);cursor=214;
@@ -71,13 +74,13 @@ namespace QuestAI
         }
         public void Session()
         {
-            if(app.Brain)app.Brain.Resume();Clear("TOGETHER","声をかけてみよう","PCはUキーを押して話す。「ジャンプして」「ボールを転がして」など動きも頼めます。",true);
+            if(app.Brain)app.Brain.Resume();Clear("TOGETHER","声をかけてみよう","PCはUキー、QuestはA・Xボタンを押して話す。「ジャンプして」「ボールを転がして」など動きも頼めます。",true);
             Button("会話に接続  /  GPT-Live-1",()=>app.Brain?.Connect(),true);
             var ptt=ButtonAt("押して話す  /  PTT",0,cursor,430,70,null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
             ButtonAt("文字で話す  ›",454,cursor,434,70,TextChat);cursor+=86;
             ButtonAt("接続を終了",0,cursor,430,64,()=>app.Brain?.Disconnect());ButtonAt("設定",454,cursor,434,64,SettingsMenu);cursor+=84;
             ButtonAt("いっしょに遊ぶ",0,cursor,280,64,Activities);ButtonAt("動きを試す",304,cursor,280,64,MotionLab);ButtonAt("メインメニューへ",608,cursor,280,64,app.ReturnMenu);cursor+=84;
-            captions=TextAt("",content,0,cursor,888,214,28,Ink);ShowStatus("PC: U長押し ／ Quest: Aボタン ／ 画面: PTT長押し");
+            captions=TextAt("",content,0,cursor,888,214,28,Ink);ShowStatus("PC: U長押し ／ Quest: A・Xボタン ／ 画面: PTT長押し");
         }
         static readonly string[] QuickPhrases={"うん","ううん","ありがとう","もう一回言って","ちょっと待って"};
         string lastDemo = "左手だけを振って";
@@ -100,14 +103,13 @@ namespace QuestAI
         public void TextChat()
         {
             if(!app.Brain)return;
-            Clear("TEXT","文字で話しかける","声を出せない時用。返事は声と字幕で届きます。PCはキーボード入力・Enterで送信。");
-            editValue="";IsEditing=true;secretEditing=false;returnPage=Session;Input.imeCompositionMode=IMECompositionMode.On;
+            Clear("TEXT","文字で話しかける",SystemKeyboard?"声を出せない時用。返事は声と字幕で届きます。「キーボード」で漢字・英数字や音声入力も使えます。":"声を出せない時用。返事は声と字幕で届きます。PCはキーボード入力・Enterで送信。");
+            editValue="";IsEditing=true;secretEditing=false;editLimit=CharacterBrain.MaxTypedLength;returnPage=Session;Input.imeCompositionMode=IMECompositionMode.On;
             editText=TextAt("",content,10,196,868,74,28,Ink);
             Action refresh=()=>editText.text=editValue.Length>0?editValue:"（ここに入力した文字が出ます）";refreshEdit=refresh;refresh();submitEdit=()=>SendTyped(editValue);
             for(int i=0;i<QuickPhrases.Length;i++){string phrase=QuickPhrases[i];ButtonAt(phrase,i*177.6f,278,171,48,()=>SendTyped(phrase));}
             for(int r=0;r<KanaInput.Rows.Length;r++)for(int i=0;i<KanaInput.Rows[r].Length;i++){string key=KanaInput.Rows[r][i].ToString();ButtonAt(key=="　"?"空白":key,i*88.8f,336+r*52,82.8f,46,()=>{editValue=KanaInput.Press(editValue,key,CharacterBrain.MaxTypedLength);refresh();});}
-            ButtonAt("1文字消す",0,656,270,60,()=>{if(editValue.Length>0)editValue=editValue.Substring(0,editValue.Length-1);refresh();});ButtonAt("すべて消す",290,656,270,60,()=>{editValue="";refresh();});
-            ButtonAt("送信",580,656,308,60,()=>SendTyped(editValue),true);Back(Session);
+            EditRow(656,refresh,"送信",()=>SendTyped(editValue));Back(Session);
         }
         void SendTyped(string text)
         {
@@ -204,7 +206,7 @@ namespace QuestAI
                     EditButton("Liveモデル",app.Settings.voiceModel,v=>app.Settings.voiceModel=v);
                     EditButton("記憶抽出モデル",app.Settings.llmModel,v=>app.Settings.llmModel=v);
                     Button("GPT-Live接続テスト",()=>app.TestProvider("OpenAI"));Note("会話本体: GPT-Live-1 / 記憶抽出: Responses API");break;
-                case 1:Note("PTTを押している間だけマイクを送信します。\n離すと録音と送信を停止します。\n1回の録音は最大60秒です。",150);Note("コントローラー: Aボタン\nハンドトラッキング: PTTボタンをピンチで長押し",110);
+                case 1:Note("PTTを押している間だけマイクを送信します。\n離すと録音と送信を停止します。\n1回の録音は最大60秒です。",150);Note("コントローラー: AまたはXボタン\nハンドトラッキング: PTTボタンをピンチで長押し",110);Note("Questの操作（PC版のキー操作と同じ）\n移動: 左スティック（WASD）／ 向き: 右スティック\n指さし: 右グリップ（F）／ 手を振る: Yボタン（H）\nしゃがむ・立つ: 左スティック押し込み（C）",190);
                     Button("マイク・再生を確認（4秒）",()=>{if(!microphoneCheck)microphoneCheck=gameObject.AddComponent<MicrophoneCheck>();microphoneCheck.Begin(app.Settings.voiceVolume,ShowStatus);});Note("録音してその場で再生します。外部送信・ファイル保存は行いません。",90);break;
                 case 2:
                     EditButton("Live音声（空欄でキャラ既定）",app.Settings.voiceOverride,v=>app.Settings.voiceOverride=v);
@@ -241,15 +243,43 @@ namespace QuestAI
         void EditButton(string label,string value,Action<string> save,bool secret=false)=>Button(label+"  ›",()=>Keyboard(label,value,save,secret));
         void Keyboard(string label,string value,Action<string> save,bool secret)
         {
-            Clear("INPUT",label,"貼り付け、または入力後に「保存」。PCではCtrl+Vも使えます。");editValue=value;IsEditing=true;secretEditing=secret;
+            Clear("INPUT",label,SystemKeyboard?"入力後に「保存」。「キーボード」でQuestのキーボードと貼り付けも使えます。":"貼り付け、または入力後に「保存」。PCではCtrl+Vも使えます。");editValue=value;IsEditing=true;secretEditing=secret;editLimit=512;
             editText=TextAt(secret?new string('●',editValue.Length):editValue,content,10,208,868,85,28,Ink);
             string[] rows={"1234567890","qwertyuiop","asdfghjkl","zxcvbnm","QWERTYUIOP","ASDFGHJKL","ZXCVBNM_-./+="};
             Action refresh=()=>editText.text=secret?new string('●',Math.Min(100,editValue.Length)):editValue;
             refreshEdit=refresh;
             for(int r=0;r<rows.Length;r++)for(int i=0;i<rows[r].Length;i++){string ch=rows[r][i].ToString();float step=Mathf.Min(72,888f/rows[r].Length);ButtonAt(ch,i*step,306+r*54,step-6,48,()=>{if(editValue.Length<512)editValue+=ch;refresh();});}
-            ButtonAt("1文字消す",0,697,270,60,()=>{if(editValue.Length>0)editValue=editValue.Substring(0,editValue.Length-1);refresh();});ButtonAt("すべて消す",290,697,270,60,()=>{editValue="";refresh();});
-            ButtonAt("保存",580,697,308,60,()=>{try{save(editValue.Trim());app.SaveSettings();editValue="";returnPage();}catch{ShowStatus("保存できませんでした。もう一度お試しください。");}},true);Back(()=>{editValue="";returnPage();});
+            EditRow(697,refresh,"保存",()=>{try{save(editValue.Trim());app.SaveSettings();editValue="";returnPage();}catch{ShowStatus("保存できませんでした。もう一度お試しください。");}});Back(()=>{editValue="";returnPage();});
             ButtonAt("貼り付け",290,778,270,58,()=>{try{PasteText(GUIUtility.systemCopyBuffer);}catch{ShowStatus("クリップボードを読み取れませんでした。");}});
+        }
+        // Delete / clear / (Quest keyboard) / confirm along the bottom of an input page.
+        void EditRow(float y,Action refresh,string confirm,Action done)
+        {
+            float w=SystemKeyboard?200:270,gap=SystemKeyboard?10:20;
+            ButtonAt("1文字消す",0,y,w,60,()=>{if(editValue.Length>0)editValue=editValue.Substring(0,editValue.Length-1);refresh();});
+            ButtonAt("すべて消す",w+gap,y,w,60,()=>{editValue="";refresh();});
+            if(SystemKeyboard)ButtonAt("キーボード",2*(w+gap),y,w,60,OpenSystemKeyboard);
+            float x=SystemKeyboard?3*(w+gap):580;ButtonAt(confirm,x,y,888-x,60,done,true);
+        }
+        public void OpenSystemKeyboard()
+        {
+            if(!IsEditing||!SystemKeyboard)return;CloseSystemKeyboard();
+            systemKeyboard=TouchScreenKeyboard.Open(editValue,secretEditing?TouchScreenKeyboardType.ASCIICapable:TouchScreenKeyboardType.Default,!secretEditing,false,secretEditing);
+            if(systemKeyboard!=null)systemKeyboard.characterLimit=editLimit;
+        }
+        void CloseSystemKeyboard(){if(systemKeyboard==null)return;if(systemKeyboard.active)systemKeyboard.active=false;systemKeyboard=null;}
+        // Mirrors the Quest keyboard into the input field; its Done key sends the message like Enter on PC.
+        void PollSystemKeyboard()
+        {
+            if(systemKeyboard==null)return;
+            if(!IsEditing){CloseSystemKeyboard();return;}
+            var text=systemKeyboard.text??"";if(secretEditing)text=text.Trim();
+            if(text.Length>editLimit)text=text.Substring(0,editLimit);
+            if(text!=editValue){editValue=text;refreshEdit?.Invoke();}
+            var state=systemKeyboard.status;
+            if(state==TouchScreenKeyboard.Status.Visible)return;
+            systemKeyboard=null;
+            if(state==TouchScreenKeyboard.Status.Done&&submitEdit!=null)submitEdit();
         }
         public void PasteText(string text)
         {
@@ -264,6 +294,7 @@ namespace QuestAI
         {
             if(jevStatus&&app.JevStatus!=null&&Time.unscaledTime>=nextJevStatus){nextJevStatus=Time.unscaledTime+.5f;jevStatus.text=app.JevStatus.Label+(app.Settings.behaviorEnabled?"":" / 自動判断OFF");}
             if(captions&&app.Settings.subtitles==SubtitleMode.Minimal&&Time.time-captionTime>8)captions.text="";
+            PollSystemKeyboard();
 #if UNITY_EDITOR || UNITY_STANDALONE
             if(!IsEditing)return;
             bool command=Input.GetKey(KeyCode.LeftControl)||Input.GetKey(KeyCode.RightControl)||Input.GetKey(KeyCode.LeftCommand)||Input.GetKey(KeyCode.RightCommand);

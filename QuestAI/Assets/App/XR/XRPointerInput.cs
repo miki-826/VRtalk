@@ -30,6 +30,8 @@ namespace QuestAI
     public class XRPointerInput : MonoBehaviour
     {
         AppRoot app;EventSystem events;PointerEventData pointer;GameObject hovered,pressedTarget;bool previous,pttPrevious;LineRenderer line;
+        // Quest stand-ins for the PC keys: previous button states and whether the snap turn stick has returned to centre.
+        bool gripPrevious,wavePrevious,crouchPrevious,turnReady=true;
         IXRInputProvider controller,hands;readonly List<RaycastResult> hits=new List<RaycastResult>();
         public void Initialize(AppRoot root)
         {
@@ -45,11 +47,20 @@ namespace QuestAI
             if(pointer==null||!events){if(!events)events=FindFirstObjectByType<EventSystem>();if(!events)return;pointer=new PointerEventData(events);controller=new ControllerInputProvider(app.TrackingSpace);hands=new HandInputProvider();}
 #if UNITY_EDITOR || UNITY_STANDALONE
             ray=app.Head.GetComponent<Camera>().ScreenPointToRay(Input.mousePosition);pressed=Input.GetMouseButton(0);valid=true;bool ptt=Input.GetKey(KeyCode.U);
-            if(!app.UI.IsEditing&&app.Brain)WalkDesktop();
+            if(!app.UI.IsEditing&&app.Brain)Walk(new Vector2((Input.GetKey(KeyCode.D)||Input.GetKey(KeyCode.RightArrow)?1:0)-(Input.GetKey(KeyCode.A)||Input.GetKey(KeyCode.LeftArrow)?1:0),(Input.GetKey(KeyCode.W)||Input.GetKey(KeyCode.UpArrow)?1:0)-(Input.GetKey(KeyCode.S)||Input.GetKey(KeyCode.DownArrow)?1:0)),app.Head);
             if(Input.GetMouseButton(1)){app.Head.Rotate(-Input.GetAxis("Mouse Y")*2,Input.GetAxis("Mouse X")*2,0);var angles=app.Head.eulerAngles;app.Head.rotation=Quaternion.Euler(angles.x,angles.y,0);}
 #else
             valid=hands.TryGetPointer(out ray,out pressed)||controller.TryGetPointer(out ray,out pressed);
             var right=InputDevices.GetDeviceAtXRNode(XRNode.RightHand);right.TryGetFeatureValue(CommonUsages.primaryButton,out bool ptt);
+            var left=InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+            // Left X also talks, so either hand can hold the button.
+            if(left.TryGetFeatureValue(CommonUsages.primaryButton,out bool leftTalk)&&leftTalk)ptt=true;
+            if(!app.UI.IsEditing&&app.Brain)
+            {
+                left.TryGetFeatureValue(CommonUsages.primary2DAxis,out Vector2 move);
+                Walk(move.sqrMagnitude>.04f?move:Vector2.zero,app.TrackingSpace.parent);
+                right.TryGetFeatureValue(CommonUsages.primary2DAxis,out Vector2 turn);SnapTurn(turn.x);
+            }
 #endif
             if(app.UI.IsEditing)ptt=false;
             var body=app.Body;
@@ -60,7 +71,13 @@ namespace QuestAI
             if(!typing&&Input.GetKeyDown(KeyCode.C)){var p=app.Head.localPosition;app.Head.localPosition=new Vector3(p.x,p.y>1.2f?.9f:1.55f,p.z);}
             if(body)body.Pointer(ray,!typing&&Input.GetKeyDown(KeyCode.F));
 #else
-            if(body)body.Pointer(valid?ray:(Ray?)null,false);
+            // Right grip points at what the ray is on (PC: F), left Y waves (H), left stick click crouches or stands (C).
+            right.TryGetFeatureValue(CommonUsages.gripButton,out bool grip);left.TryGetFeatureValue(CommonUsages.secondaryButton,out bool waveButton);left.TryGetFeatureValue(CommonUsages.primary2DAxisClick,out bool crouchButton);
+            bool typing=app.UI.IsEditing;
+            if(body)body.Pointer(valid?ray:(Ray?)null,!typing&&valid&&grip&&!gripPrevious);
+            if(body&&!typing&&waveButton&&!wavePrevious)body.Wave();
+            if(body&&!typing&&crouchButton&&!crouchPrevious){body.SeatedCrouch=!body.SeatedCrouch;var rigRoot=app.TrackingSpace.parent;rigRoot.position+=Vector3.up*(body.SeatedCrouch?-UserBodyTracker.SeatedCrouchDrop:UserBodyTracker.SeatedCrouchDrop);}
+            gripPrevious=grip;wavePrevious=waveButton;crouchPrevious=crouchButton;
 #endif
             if(ptt&&!pttPrevious)app.Brain?.BeginRecording();if(!ptt&&pttPrevious)app.Brain?.EndRecording();pttPrevious=ptt;
             var canvas=app.UI.Canvas;var plane=new Plane(canvas.transform.forward,canvas.transform.position);
@@ -76,19 +93,25 @@ namespace QuestAI
             if((!pressed||!valid)&&previous&&pressedTarget){ExecuteEvents.Execute(pressedTarget,pointer,ExecuteEvents.pointerUpHandler);var click=target?ExecuteEvents.GetEventHandler<IPointerClickHandler>(target):null;if(pressedTarget==click)ExecuteEvents.Execute(pressedTarget,pointer,ExecuteEvents.pointerClickHandler);pressedTarget=null;pointer.pointerPress=null;}
             previous=pressed&&valid;
         }
-#if UNITY_EDITOR || UNITY_STANDALONE
-        // PC only: WASD/arrow keys move the viewpoint across the room floor so the character can react to distance.
-        void WalkDesktop()
+        // WASD on PC, the left stick on Quest: moves the given rig across the room floor (relative to where the user looks)
+        // so the character can react to distance, stopping at the walls and in front of the character.
+        void Walk(Vector2 input,Transform rig)
         {
-            var move=new Vector3((Input.GetKey(KeyCode.D)||Input.GetKey(KeyCode.RightArrow)?1:0)-(Input.GetKey(KeyCode.A)||Input.GetKey(KeyCode.LeftArrow)?1:0),0,(Input.GetKey(KeyCode.W)||Input.GetKey(KeyCode.UpArrow)?1:0)-(Input.GetKey(KeyCode.S)||Input.GetKey(KeyCode.DownArrow)?1:0));
-            if(move.sqrMagnitude<.01f)return;
+            if(input.sqrMagnitude<.01f||!rig)return;
+            var move=new Vector3(input.x,0,input.y);if(move.sqrMagnitude>1)move.Normalize();
             var forward=app.Head.forward;forward.y=0;if(forward.sqrMagnitude<.01f)forward=Vector3.forward;var yaw=Quaternion.LookRotation(forward.normalized);
-            var next=app.Head.position+yaw*move.normalized*1.4f*Time.deltaTime;
+            var step=yaw*move*1.4f*Time.deltaTime;var next=app.Head.position+step;
             var world=app.Brain.world;if(world!=null){var room=world.floor;room.Expand(new Vector3(-1,0,-1));if(!room.Contains(new Vector3(next.x,room.center.y,next.z)))return;}
             var character=app.Brain.body.transform.position;if(new Vector2(next.x-character.x,next.z-character.z).sqrMagnitude<.25f)return;
-            app.Head.position=new Vector3(next.x,app.Head.position.y,next.z);
+            rig.position+=step;
         }
-#endif
+        // Turns the Quest rig by 30 degrees about the user's head each time the right stick is pushed sideways.
+        void SnapTurn(float x)
+        {
+            if(Mathf.Abs(x)<.3f){turnReady=true;return;}
+            if(!turnReady||Mathf.Abs(x)<.7f)return;turnReady=false;
+            app.TrackingSpace.parent.RotateAround(app.Head.position,Vector3.up,Mathf.Sign(x)*30);
+        }
         void OnDisable(){if(pressedTarget)ExecuteEvents.Execute(pressedTarget,pointer,ExecuteEvents.pointerUpHandler);previous=pttPrevious=false;app?.Brain?.EndRecording();}
     }
 }

@@ -14,11 +14,13 @@
 |Poly Haven snowy_forest_path_01（HDRI tonemapped JPG、2026-10-17取得）|[Poly Haven snowy_forest_path_01](https://polyhaven.com/a/snowy_forest_path_01)|CC0 1.0|`QuestAI/Assets/ThirdParty/PolyHaven/snowy_forest_path_01_panorama.jpg`|
 |Poly Haven poly_wool_herringbone / bark_brown_02（1K、2026-10-17取得）|[Poly Haven Textures](https://polyhaven.com/textures)|CC0 1.0|`QuestAI/Assets/ThirdParty/PolyHaven/Textures`|
 |RobotExpressive（Tomás Laulhé / Quaternius作、Don McCurdy改変。three.js r160 examples、2026-10-24取得。glbを `tools/convert-robot.py` でFBXへ変換）|[three.js RobotExpressive](https://github.com/mrdoob/three.js/tree/r160/examples/models/gltf/RobotExpressive)|CC0 1.0|`QuestAI/Assets/ThirdParty/RobotExpressive`（歩行・手振り等14アニメーションと表情モーフ3種。キャラクター「ロボ」）|
+|VRoid サンプルモデル AvatarSample_E / AvatarSample_F / AvatarSample_G / 桜田史利矢（VRoid Project / pixiv Inc.、VRoid Studio α版のサンプル。2026-10-31にOpenGameArtのミラーから取得）|[VRoid Studio CC0 models](https://opengameart.org/content/vroid-studio-cc0-models)（[公式の利用条件](https://vroid.pixiv.help/hc/en-us/articles/4402614652569)）|CC0 1.0（VRM内メタデータも改変・再配布・商用可、クレジット不要）|`QuestAI/Assets/ThirdParty/VRoidSamples`（しろ・こはく・もも・むぎ。テクスチャとマテリアルは同フォルダーに展開。うさ耳・猫耳・しっぽは本プロジェクトで生成）|
+|UniVRM / UniGLTF v0.131.4（VRM Consortium、ousttrue、MToon: Masataka SUMI）|[vrm-c/UniVRM](https://github.com/vrm-c/UniVRM)|MIT|Package Manager（`Packages/manifest.json`）。原文は `StreamingAssets/Licenses/UniVRM-LICENSE.txt` と `com.vrmc.gltf-UniGLTF-LICENSE.md`|
 |Noto Sans CJK JP|[Noto Sans CJK JP](https://github.com/notofonts/noto-cjk)|SIL Open Font License 1.1|`QuestAI/Assets/Resources/Fonts/NotoSansJP.otf`|
 
 Kenney原文はThirdParty/Kenney内のLicenseファイル、Noto原文はThirdParty/Noto/LICENSE.txtに同梱しています。Poly Havenの[ライセンス](https://polyhaven.com/license)はCC0で、同梱画像からUnityマテリアルを作成しています。無料素材を使用した壁・床・梁・暖炉・窓などの部屋構成とシーン生成コードはこのプロジェクトで制作しています。
 
-白いちびキャラは利用者提供の `model/character/chibi` が原本です。その複製にURPマテリアル・表情BlendShape・ボーン対応を追加しました。提供モデルの権利条件は原本に従います。
+以前の白いちびキャラ（現在は未使用）は利用者提供の `model/character/chibi` が原本です。その複製にURPマテリアル・表情BlendShape・ボーン対応を追加しました。提供モデルの権利条件は原本に従います。
 
 Meta XR SDK Core/Interactionは205.0.0、Audioは85.0.0。Unity/OpenXR/URP/Meta/Newtonsoftのパッケージにはそれぞれのライセンスが適用され、Package Managerで取得したパッケージ内のLICENSE等を参照してください。これらSDKをCC0とは扱っていません。
 
@@ -36,3 +38,7 @@ Meta XR SDK Core/Interactionは205.0.0、Audioは85.0.0。Unity/OpenXR/URP/Meta/
 - 作者: Quaternius（https://quaternius.com）。入手: OpenGameArt の Standard 版 zip。
 - ライセンス: CC0 1.0（`QuestAI/Assets/ThirdParty/Quaternius/License.txt`）。
 - 用途: WhiteChibi のHumanoidアニメーション（`UAL1_Standard.fbx`, `UAL2_Standard.fbx`）。
+- `AvatarSample_E.vrm`: `aea824cc43a95dd022a57d460ed901534a45fc2ac195f26ffc4d0d5beb0d7911`
+- `AvatarSample_F.vrm`: `d8eff1ed09b41afb94e30da27997560fb901dde925c813f835ab1986708521bb`
+- `AvatarSample_G.vrm`: `ad5750ce944b708155abb7ac6807e19d7f5e73a939f0ee32daf0539acfca57c0`
+- `SakuradaFumiriya.vrm`: `a36e91b81518c59f6da0e3f34a176b79090a8c68cc6bd5fe03c1560744b283f3`

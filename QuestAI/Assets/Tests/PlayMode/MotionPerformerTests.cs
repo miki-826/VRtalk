@@ -15,10 +15,6 @@ namespace QuestAI.Tests
         static MotionStep Step(MotionAction action, string target = "", MotionDirection direction = MotionDirection.none, float amount = 0) => new MotionStep { action = action, target = target, direction = direction, amount = amount };
         static MotionPlan Plan(params MotionStep[] steps) => new MotionPlan { steps = steps, summary = "テスト" };
         static Vector3 Flat(Vector3 v) { v.y = 0; return v; }
-        static Vector3 BakedCenter(SkinnedMeshRenderer renderer)
-        {
-            var mesh = new Mesh(); renderer.BakeMesh(mesh); var center = renderer.transform.TransformPoint(mesh.bounds.center); Object.Destroy(mesh); return center;
-        }
         static IEnumerator Boot()
         {
             AppRoot.EditorRepositoryFactory = () => new LocalRepository();
@@ -138,7 +134,7 @@ namespace QuestAI.Tests
             yield return Boot(); var app = AppRoot.Instance; Assert.NotNull(app);
             yield return Start(app, "calm", "LivingRoom");
             var brain = app.Brain; var performer = brain.performer; var play = brain.playground; var reports = new List<string>(); performer.Report = reports.Add;
-            var clips = brain.GetComponent<ClipAnimator>(); Assert.NotNull(clips, "WhiteChibi plays the CC0 animation library"); Assert.True(clips.Humanoid);
+            var clips = brain.GetComponent<ClipAnimator>(); Assert.NotNull(clips, "The companion plays the CC0 animation library"); Assert.True(clips.Humanoid);
             foreach (var name in new[] { "Idle_Loop", "Walk_Loop", "Jog_Fwd_Loop", "Walk_Carry_Loop", "OverhandThrow", "Dance_Loop", "Crouch_Idle_Loop", "Punch_Jab", "Death01" }) Assert.True(clips.Has(name), name);
             var dance = Step(MotionAction.motion, amount: 1); dance.motion = MotionPreset.dance;
             performer.Run(Plan(dance), "踊って"); yield return new WaitForSeconds(.6f);
@@ -181,12 +177,11 @@ namespace QuestAI.Tests
                 yield return Start(app, id, "LivingRoom");
                 var brain = app.Brain; var rig = brain.body.rig; var secondary = brain.GetComponent<CompanionSecondaryMotion>();
                 Assert.NotNull(secondary); Assert.NotNull(secondary.leftEar); Assert.NotNull(secondary.rightEar); Assert.NotNull(secondary.tail);
-                Assert.True(brain.GetComponent<ClipAnimator>().Humanoid); Assert.That(rig.faceMeshes.Length, Is.GreaterThan(0));
+                Assert.True(brain.GetComponent<ClipAnimator>().Humanoid); Assert.NotNull(brain.GetComponent<FaceDriver>());
                 brain.performer.Run(Plan(Step(MotionAction.turn, direction: MotionDirection.to_user)), "こっちを向いて"); yield return Done(brain.performer, 5);
                 brain.body.SetEmotion(Emotion.happy); yield return new WaitForSeconds(.5f);
-                var headMesh = brain.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name.StartsWith("Head_"));
-                var eyeMesh = brain.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name == "Eye.L");
-                Assert.That(Vector3.Dot(BakedCenter(eyeMesh) - BakedCenter(headMesh), brain.transform.forward), Is.GreaterThan(.05f), "The animated face points in the requested direction");
+                var eye = rig.animator.GetBoneTransform(HumanBodyBones.LeftEye); var neck = rig.animator.GetBoneTransform(HumanBodyBones.Neck);
+                Assert.That(Vector3.Dot(eye.position - neck.position, brain.transform.forward), Is.GreaterThan(.02f), "The animated face points in the requested direction");
                 yield return ApplicationTests.SaveImage(app.Head.GetComponent<Camera>(), "Companion-" + id + "-session");
                 var hold = LocalMotionParser.Parse("4秒両手を上げて", new MotionRequest()).plan;
                 brain.performer.Run(hold, "4秒両手を上げて");

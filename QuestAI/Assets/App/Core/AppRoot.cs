@@ -77,6 +77,14 @@ namespace QuestAI
             var grade=Resources.Load<VolumeProfile>("Graphics/CinematicGrade");
             if(grade){Head.GetComponent<Camera>().GetUniversalAdditionalCameraData().renderPostProcessing=true;var volume=gameObject.AddComponent<Volume>();volume.isGlobal=true;volume.sharedProfile=grade;}
         }
+        // Each room starts from the same spot: undoes stick/WASD walking, snap turns and a seated crouch from the last room.
+        void ResetViewpoint()
+        {
+            var rig=TrackingSpace.parent;if(rig){if(Body&&Body.SeatedCrouch)Body.SeatedCrouch=false;rig.SetPositionAndRotation(new Vector3(0,0,-1.8f),Quaternion.identity);}
+#if !UNITY_ANDROID || UNITY_EDITOR
+            Head.localPosition=new Vector3(0,Head.localPosition.y,0);
+#endif
+        }
         async Task LoadScene(string name)
         {
             // Unload every content scene, not only the one recorded last, so an interrupted switch cannot leave two rooms loaded.
@@ -100,7 +108,7 @@ namespace QuestAI
                 var profile=characters.FirstOrDefault(x=>x.id==Settings.characterId)??characters[0];
                 var environment=environments.FirstOrDefault(x=>x.id==Settings.environmentId)??environments[0];
                 Settings.characterId=profile.id;Settings.environmentId=environment.id;SaveSettings();
-                await LoadScene(environment.sceneName);
+                await LoadScene(environment.sceneName);ResetViewpoint();
                 var world=SceneAwareness.Scan(SceneManager.GetSceneByName(environment.sceneName),environment.characterPosition);
                 var avatar=Instantiate(profile.prefab,environment.characterPosition,Quaternion.Euler(0,180,0));
                 var body=avatar.GetComponent<BodySystem>();body.user=Head;

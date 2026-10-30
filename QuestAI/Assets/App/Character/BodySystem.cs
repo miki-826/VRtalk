@@ -23,12 +23,12 @@ namespace QuestAI
         float gestureTime, gestureRate = 1, nextBlink, blinkStarted = -10, mouth, gazeYaw, gazePitch, walkPhase;
         readonly float[] audio = new float[256];
         static readonly string[] EmotionNames=System.Enum.GetNames(typeof(Emotion));
-        CharacterLocomotion locomotion; ClipAnimator clips; bool clipGesture;
+        CharacterLocomotion locomotion; ClipAnimator clips; FaceDriver face; bool clipGesture;
         void Awake()
         {
             if (!rig) rig = GetComponent<CharacterRigBinding>();
             if (!rig) return;
-            clips = GetComponent<ClipAnimator>();
+            clips = GetComponent<ClipAnimator>(); face = GetComponent<FaceDriver>();
             if(rig.animator&&rig.animator.isHuman&&!rig.hips)rig.hips=rig.animator.GetBoneTransform(HumanBodyBones.Hips);
             if(rig.hips){hipsRest=rig.hips.localPosition;HipHeight=Mathf.Max(.1f,rig.hips.position.y-transform.position.y);}
             if(rig.animator&&rig.animator.isHuman&&!rig.leftLeg)
@@ -165,6 +165,8 @@ namespace QuestAI
             float blinkAge=t-blinkStarted,blink=blinkAge<.18f?Mathf.Sin(blinkAge/.18f*Mathf.PI)*100:0;
             float volume=0;if(IsSpeaking){voice.GetOutputData(audio,0);foreach(var sample in audio)volume+=sample*sample;volume=Mathf.Clamp01(Mathf.Sqrt(volume/audio.Length)*9);}
             mouth=Mathf.Lerp(mouth,volume,1-Mathf.Exp(-20*Time.deltaTime));
+            // The head already turns by most of the gaze; the eyes cover the rest and lead slightly.
+            if(face)face.Drive(decision.emotion,blink/100,mouth,gazeYaw*.6f,-gazePitch*.6f);
             foreach(var mesh in rig.faceMeshes)
             {
                 if(!mesh)continue;
