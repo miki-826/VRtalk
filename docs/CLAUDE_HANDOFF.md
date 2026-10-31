@@ -1,5 +1,16 @@
 # Claude Code 引き継ぎ
 
+## 2026-10-31: 自分のVRMモデルをアプリ内で追加
+
+- ユーザー指示「作ってもらったキャラ以外に3Dモデルを自分で登録できるようにして、渡したらそれで動けるような」。確認の結果、アプリ内（再ビルド不要）でVRMのみ対応。
+- `App/Character/CustomModels.cs`: `Application.persistentDataPath/Models/*.vrm` を走査し、`custom:<ファイル名>` のCharacterProfile（`modelPath` 付き、prefabなし）を作る。同名 `.txt` は1行目=名前、残り=性格。セッション開始時に `Vrm10.LoadPathAsync`（VRM0.x移行、URPマテリアル、ControlRigなし）で読み、内蔵キャラと同じClipAnimator（`AppRoot.AnimationLibrary` = 内蔵キャラのライブラリ）・CharacterRigBinding・BodySystemと `VrmFaceDriver`（復活）を付ける。0.6〜1.9mへ自動縮尺。読み込みは部屋の切り替え前に行い、失敗時はメニューに留まる（エラーは `InvalidOperationException` の日本語メッセージ）。
+- UI: キャラクター一覧を2列・ページ送りにし、「自分のモデルを追加」ページ（フォルダ表示、Windowsは「フォルダを開く」、「一覧を更新」）。
+- テスト: `Tests/PlayMode/CustomModelTests.cs`。フィクスチャ `Tests/Fixtures/MascotDog.vrm.bytes` は `Quest AI > Export test VRM (mascot dog)`（しろをVRM 1.0に書き出し）で再生成。
+- 修正: うさぎ・いぬの耳メッシュの先端にNaN頂点（`Pow(Sin(π), 0.6)` が負の底でNaN）があった。`Mathf.Max(0, …)` で修正し、EditModeでMeshFilterのNaNも検査。ライブラリに "Wave" クリップはなく、手振りはMotionPerformer経由で動く。
+- 「URLから追加」: `CustomModels.Download` が .vrm の直接リンクをModelsへ保存（先頭が glTF マジックでなければ拒否、300MBまで、同名は _2 付き）。入力キーボードに `: ? & %` を追加。
+- 身振りの修正: 共有アニメーションライブラリに Wave / No / Jump クリップがなく、ライブラリを使うキャラ（ミニキャラ・マイモデル）は wave・shrug・laugh で腕が動いていなかった。`BodySystem` がクリップのない身振りをキャラ自身の軸で重ねる（手振り・肩すくめ・笑いの上体の揺れ）。しぐさクイズにも効く。
+- v1.5.0として配布: versionName 1.5.0 / versionCode 6。
+
 ## 2026-10-31: キャラクターをミニキャラ（いぬ・ロボ・うさぎ・ねこ）に変更
 
 - ユーザー指示「ひどいのでミニキャラとかにして普通にアニメ風キャラはやめて。猫とか犬とかロボットみたいな感じで、今までのGithubの内容も消して」。確認の結果、GitHub Releases（v1.0.0〜v1.3.0）とタグを削除し、アニメ調キャラの生成コード・データ（`OriginalCharacterBuilder` / `AnimeFaceDriver` / `HairSpring` / `Generated/OriginalCharacters`）をmainから削除。Gitの履歴は残す。

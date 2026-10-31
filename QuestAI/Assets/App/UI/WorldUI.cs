@@ -174,13 +174,49 @@ namespace QuestAI
             for(int i=0;i<names.Length;i++){int choice=i;Button(names[i],()=>{if(answered)return;answered=true;if(choice==answer)quizScore++;quizRound++;ShowStatus(choice==answer?"正解！ 次の問題へ進もう。":"答えは「"+names[answer]+"」。次も見てみよう。");ButtonAt("次へ",454,690,434,64,Quiz,true);});}
             Button("もう一度見せて",()=>{if(!answered)show();});Back(Activities);
         }
+        int characterPage;
         void Characters()
         {
-            Clear("CHARACTER","今日の話し相手","それぞれの性格・声・記憶を持っています。");
-            foreach(var profile in app.characters){var p=profile;Button((p.id==app.Settings.characterId?"● ":"")+p.displayName,()=>{app.Settings.characterId=p.id;app.SaveSettings();Characters();},p.id==app.Settings.characterId);}
+            Clear("CHARACTER","今日の話し相手","それぞれの性格・声・記憶を持っています。「マイモデル」はあなたが追加したVRMです。");
+            // Two columns, four rows a page; a page button fills the last row when there are more.
+            const int perPage=8;int pages=Mathf.Max(1,(app.characters.Length+perPage-1)/perPage);characterPage=Mathf.Clamp(characterPage,0,pages-1);
+            var shown=app.characters.Skip(characterPage*perPage).Take(perPage).ToArray();
+            for(int i=0;i<shown.Length;i++){var p=shown[i];ButtonAt((p.id==app.Settings.characterId?"● ":"")+p.displayName,i%2*454,cursor+i/2*76,434,64,()=>{app.Settings.characterId=p.id;app.SaveSettings();Characters();},p.id==app.Settings.characterId);}
+            cursor+=4*76;
+            if(pages>1){ButtonAt("前のページ",0,cursor,434,58,()=>{characterPage=(characterPage+pages-1)%pages;Characters();});ButtonAt("次のページ  ("+(characterPage+1)+" / "+pages+")",454,cursor,434,58,()=>{characterPage=(characterPage+1)%pages;Characters();});cursor+=72;}
             var selected=app.characters.FirstOrDefault(p=>p.id==app.Settings.characterId);
-            if(selected)Note(selected.personality,112);
-            Back(MainMenu);
+            if(selected)Note(selected.personality,pages>1?100:150);
+            Back(MainMenu);ButtonAt("自分のモデルを追加  ›",270,778,618,58,MyModels);
+        }
+        // How to add a VRM: the folder to put it in on this device (or a download link), then a rescan.
+        void MyModels()
+        {
+            Clear("MY MODEL","自分のモデルを追加","VRM（.vrm）の人型モデルを、話し相手として追加できます。");
+            Note("VRoid Studioなどで作ったVRM（0.x / 1.0）を下のフォルダに入れて「一覧を更新」、または「URLから追加」で .vrm への直接リンクを入力します。歩く・身振り・表情・まばたき・口パク・髪の揺れで動きます。",126);
+            Note("フォルダ: "+CustomModels.Folder,70);
+#if UNITY_ANDROID && !UNITY_EDITOR
+            Note("USBの場合: QuestをPCにつなぎ、Quest内の Android/data/"+Application.identifier+"/files/Models にコピーします。",70);
+#endif
+            Note("同じ名前の .txt を置くと、1行目が名前、2行目以降が性格になります（例: neko.vrm と neko.txt）。",70);
+            float w=SystemFolder?280:434,gap=SystemFolder?24:20;
+            ButtonAt("一覧を更新",0,cursor,w,70,()=>{int count=app.RefreshCustomModels();MyModels();ShowStatus(count>0?"マイモデル "+count+" 体を読み込みました。キャラクター一覧から選べます。":"VRMファイルが見つかりません。フォルダを確認してください。");},true);
+            ButtonAt("URLから追加  ›",w+gap,cursor,w,70,()=>{returnPage=MyModels;Keyboard(".vrm のURL","",DownloadModel,false);});
+            if(SystemFolder)ButtonAt("フォルダを開く",2*(w+gap),cursor,888-2*(w+gap),70,()=>Application.OpenURL(new Uri(CustomModels.Folder).AbsoluteUri));
+            cursor+=86;Back(Characters);
+        }
+#if UNITY_ANDROID && !UNITY_EDITOR
+        const bool SystemFolder=false;
+#else
+        const bool SystemFolder=true;
+#endif
+        async void DownloadModel(string url)
+        {
+            if(string.IsNullOrWhiteSpace(url))return;
+            // Let the input page close first so the status shows on the page it returns to.
+            await System.Threading.Tasks.Task.Yield();ShowStatus("ダウンロードしています…");
+            try{var path=await CustomModels.Download(url);app.RefreshCustomModels();ShowStatus("「"+System.IO.Path.GetFileNameWithoutExtension(path)+"」を追加しました。キャラクター一覧から選べます。");}
+            catch(InvalidOperationException e){ShowStatus(e.Message);}
+            catch(Exception){ShowStatus("ダウンロードに失敗しました。URLと接続を確認してください。");}
         }
         void Environments()
         {
@@ -245,7 +281,7 @@ namespace QuestAI
         {
             Clear("INPUT",label,SystemKeyboard?"入力後に「保存」。「キーボード」でQuestのキーボードと貼り付けも使えます。":"貼り付け、または入力後に「保存」。PCではCtrl+Vも使えます。");editValue=value;IsEditing=true;secretEditing=secret;editLimit=512;
             editText=TextAt(secret?new string('●',editValue.Length):editValue,content,10,208,868,85,28,Ink);
-            string[] rows={"1234567890","qwertyuiop","asdfghjkl","zxcvbnm","QWERTYUIOP","ASDFGHJKL","ZXCVBNM_-./+="};
+            string[] rows={"1234567890","qwertyuiop","asdfghjkl","zxcvbnm","QWERTYUIOP","ASDFGHJKL","ZXCVBNM_-./+=:?&%"};
             Action refresh=()=>editText.text=secret?new string('●',Math.Min(100,editValue.Length)):editValue;
             refreshEdit=refresh;
             for(int r=0;r<rows.Length;r++)for(int i=0;i<rows[r].Length;i++){string ch=rows[r][i].ToString();float step=Mathf.Min(72,888f/rows[r].Length);ButtonAt(ch,i*step,306+r*54,step-6,48,()=>{if(editValue.Length<512)editValue+=ch;refresh();});}

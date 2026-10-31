@@ -383,7 +383,8 @@ namespace QuestAI.Editor
         // A long bunny ear: an elliptic section that swells then narrows to a soft tip, bending slightly back.
         static Mesh BunnyEar(string name, float length, float width, float depth) => Sweep(name, 24, 16, t =>
         {
-            float profile = Mathf.Pow(Mathf.Sin(Mathf.Lerp(.35f, Mathf.PI, t)), .55f);
+            // Sin(π) is a tiny negative float, and a negative base to a fractional power is NaN.
+            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Sin(Mathf.Lerp(.35f, Mathf.PI, t))), .55f);
             return (new Vector3(0, t * length, -t * t * length * .12f), width * .5f * Mathf.Max(.05f, profile * (1 - .25f * t)), depth * .5f * Mathf.Max(.15f, profile));
         });
         // A cat ear: a cone with an elliptic base that is flatter front to back, rounded at the tip.
@@ -395,7 +396,7 @@ namespace QuestAI.Editor
         // A floppy dog ear: a flat rounded flap hanging down, its broad side facing out from the head.
         static Mesh DogEar() => Sweep("DogEar", 18, 16, t =>
         {
-            float profile = Mathf.Pow(Mathf.Sin(Mathf.Lerp(.25f, Mathf.PI, t)), .6f);
+            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Sin(Mathf.Lerp(.25f, Mathf.PI, t))), .6f);
             return (new Vector3(t * t * .025f, -t * .17f, 0), .018f * Mathf.Max(.3f, profile), .07f * Mathf.Max(.08f, profile));
         });
         static Vector3 Spline(Vector3[] path, float t)
@@ -423,7 +424,8 @@ namespace QuestAI.Editor
             {
                 float t = (float)i / (rings - 1); var (c, rx, rz) = ring(t);
                 var ahead = ring(Mathf.Min(1, t + .01f)).center - ring(Mathf.Max(0, t - .01f)).center; if (ahead.sqrMagnitude < 1e-10f) ahead = Vector3.up;
-                var frame = Quaternion.FromToRotation(Vector3.up, ahead.normalized);
+                // FromToRotation is undefined (NaN) for opposite vectors, e.g. an ear hanging straight down.
+                var frame = Vector3.Dot(Vector3.up, ahead.normalized) < -.9999f ? Quaternion.AngleAxis(180, Vector3.forward) : Quaternion.FromToRotation(Vector3.up, ahead.normalized);
                 for (int j = 0; j < sides; j++) { float a = j * Mathf.PI * 2 / sides; vertices.Add(c + frame * new Vector3(Mathf.Cos(a) * rx, 0, Mathf.Sin(a) * rz)); }
             }
             for (int i = 0; i < rings - 1; i++) for (int j = 0; j < sides; j++)
@@ -567,6 +569,26 @@ namespace QuestAI.Editor
             shadow.transform.localPosition = new Vector3(0, .012f, 0); shadow.transform.localRotation = Quaternion.Euler(90, 0, 0); shadow.transform.localScale = new Vector3(.6f, .6f, 1);
             shadow.GetComponent<MeshFilter>().sharedMesh = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
             var r = shadow.GetComponent<MeshRenderer>(); r.sharedMaterial = material; r.shadowCastingMode = ShadowCastingMode.Off; r.receiveShadows = false; r.lightProbeUsage = LightProbeUsage.Off; r.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        }
+
+        // ---------- test model ----------
+        // Writes the dog mascot as a VRM 1.0 file for the custom-model tests (a .bytes name keeps Unity from importing it).
+        public const string TestModel = "Assets/Tests/Fixtures/MascotDog.vrm.bytes";
+        [MenuItem("Quest AI/Export test VRM (mascot dog)")]
+        public static void ExportTestModel()
+        {
+            var go = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(Output + "/calm.prefab"));
+            PrefabUtility.UnpackPrefabInstance(go, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+            // The export root must be the object that holds the humanoid Animator.
+            var model = go.transform.Find("Model").gameObject; model.transform.SetParent(null, true);
+            try
+            {
+                var meta = new UniVRM10.VRM10ObjectMeta { Name = "MascotDog", Version = "1.0" }; meta.Authors.Add("QuestAI");
+                var bytes = UniVRM10.Vrm10Exporter.Export(new UniGLTF.GltfExportSettings(), model, new UniVRM10.UrpVrm10MaterialExporter(), new UniGLTF.EditorTextureSerializer(), meta);
+                Directory.CreateDirectory(Path.GetDirectoryName(TestModel)); File.WriteAllBytes(TestModel, bytes); AssetDatabase.ImportAsset(TestModel);
+                Debug.Log("TEST_VRM_EXPORTED " + bytes.Length);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(model); UnityEngine.Object.DestroyImmediate(go); }
         }
 
         // ---------- review ----------

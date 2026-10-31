@@ -14,6 +14,8 @@ namespace QuestAI
             ? "明るい、弾むような元気な声。やや高めの響きで、楽しそうな抑揚をつける。早口や叫び声を避け、自然な日本語で一度に1〜3文話す。"
             : "穏やかで柔らかく温かな声。落ち着いた抑揚で、少しゆっくり、親しい相手に話す自然な日本語。ささやきすぎず、一度に1〜3文話す。";
         public GameObject prefab;
+        // A user-added VRM (CustomModels) instead of a prefab.
+        public string modelPath;
         public Emotion defaultEmotion;
         public float personalSpace = .7f, initiative = .3f;
     }

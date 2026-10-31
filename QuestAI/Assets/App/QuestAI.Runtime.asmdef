@@ -13,6 +13,7 @@
     "Meta.XR.Audio",
     "VRM10",
     "UniGLTF",
+    "UniGLTF.Utils",
     "UniHumanoid"
   ],
   "autoReferenced": true
