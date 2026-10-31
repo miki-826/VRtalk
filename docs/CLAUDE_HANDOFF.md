@@ -10,6 +10,7 @@
 - VR操作: 左スティック移動（WASD相当、部屋の範囲とキャラ手前で停止）、右スティック30度スナップターン、右グリップ=指さし（F）、Y=手を振る（H）、左スティック押し込み=しゃがむ（C、`UserBodyTracker.SeatedCrouch`）、X=PTT（Aに加えて）。部屋開始時に `AppRoot.ResetViewpoint` で位置・向きを戻す。
 - 文字入力: Questでは `TouchScreenKeyboard`（システムキーボード、`requiresSystemKeyboard` とmanifestの `oculus.software.overlay_keyboard`）を「キーボード」ボタンで開き、Doneで送信。
 - 検証: EditMode 83/83、PlayMode 26/26、APKビルド成功（191,654,283 bytes、SHA256 `03173E0412B089414251B08CC75C5C475E2251DEF6673F3777794DD41AFDC2A2`、版は1.1.0のまま）。Quest実機でのスティック操作・システムキーボード・描画負荷は未確認（Questが未許可/未接続）。
+- v1.2.0として配布: versionName 1.2.0 / versionCode 3。GitHub Releases `v1.2.0` にAPK・Windows ZIP・SHA256SUMSを掲載。`package-release.ps1` はWindows PowerShell 5.1でも動くよう `System.IO.Compression` を読み込む。
 
 ## 2026-10-25: 動作の精度・ももとむぎ
 

@@ -2,7 +2,7 @@
 
 ## ダウンロード
 
-[GitHub Releases](https://github.com/miki-826/VRtalk/releases/latest) から最新版を取得してください。**v1.1.0** は、もも・むぎと自然な動作、APIキーなしで使える「動きを試す」を収録しています。
+[GitHub Releases](https://github.com/miki-826/VRtalk/releases/latest) から最新版を取得してください。**v1.2.0** は、アニメ調に作り直したしろ・こはく・もも・むぎと、PC版と同じ操作（移動・旋回・指さし・手を振る・しゃがむ・システムキーボード入力）をQuestで使えるようにした版です。
 
 |ファイル|対象|使い方|
 |---|---|---|
@@ -52,9 +52,9 @@ UIは右コントローラーのトリガー、または手のピンチで操作
 - Android SQLiteで会話・記憶・関係性・状態・設定を保存。Continueで前回の部屋とキャラクターを復元。
 - Android KeystoreのAES-GCM鍵でAPIキーを暗号化。会話DB、PlayerPrefs、ソースへキーを保存しません。
 
-![猫のむぎとうさぎのもも](docs/images/companions.png)
+![しろ・こはく・もも・むぎ](docs/images/characters.png)
 
-配布ファイルの作成: Windows/Questをビルドしてから `./tools/package-release.ps1 -Version 1.1.0`。配布ZIP・APK・SHA256チェックサムを `artifacts/releases/v1.1.0/` に作成します。
+配布ファイルの作成: Windows/Questをビルドしてから `./tools/package-release.ps1 -Version 1.2.0`。配布ZIP・APK・SHA256チェックサムを `artifacts/releases/v1.2.0/` に作成します。
 
 ## 会話構成の変更点
 
