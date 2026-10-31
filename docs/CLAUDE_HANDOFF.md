@@ -1,12 +1,12 @@
 # Claude Code 引き継ぎ
 
-## 2026-10-31: キャラクターを自作モデルに置き換え（VRoid不使用）
+## 2026-10-31: キャラクターをミニキャラ（いぬ・ロボ・うさぎ・ねこ）に変更
 
-- ユーザー指示「このモデルはあなたが作成したやつ？違うなら自分で一から作成したものにして」。VRoidサンプル4体（`ThirdParty/VRoidSamples`）と `VrmCharacterBuilder` / `VrmFaceDriver` を削除。
-- `Editor/OriginalCharacterBuilder.cs` が骨格・Humanoidアバター（`AvatarBuilder`）・体／服（リングのロフト）・頭（パラメトリック）・顔（頭に投影したデカール＋BlendShape）・髪（頭と体の楕円体ハルに沿って伸ばす束＋スプリング鎖）・虹彩／髪／口のテクスチャ・MToon10マテリアルをすべて生成。`BuildAndReview` でプレビュー `artifacts/previews/Original-*.png`。
-- 実行時: 顔は `AnimeFaceDriver`（BlendShape: Blink, EyeHappy, EyeWide, BrowSad, BrowUp, Smile, Frown, Blush, MouthOpen/Ee/Oh と目のボーン）、髪は `HairSpring`（ベルレ法の鎖、頭と胸の球コライダー）。
-- v1.3.0として配布: versionName 1.3.0 / versionCode 4。GitHub Releases `v1.3.0` にAPK・Windows ZIP・SHA256SUMS。feature/vrm-characters-vr-parity（v1.2.0を含む）をmainへマージ。
-- 注意: `Mathf.SmoothStep(a,b,t)` はGLSLのsmoothstepではない（ビルダーの `Step` を使う）。メッシュアセットを `CopySerialized` で上書きすると古いインデックスが残るので毎回作り直す。`Emotion` の並びは neutral, happy, sad, concerned, excited, embarrassed, curious。
+- ユーザー指示「ひどいのでミニキャラとかにして普通にアニメ風キャラはやめて。猫とか犬とかロボットみたいな感じで、今までのGithubの内容も消して」。確認の結果、GitHub Releases（v1.0.0〜v1.3.0）とタグを削除し、アニメ調キャラの生成コード・データ（`OriginalCharacterBuilder` / `AnimeFaceDriver` / `HairSpring` / `Generated/OriginalCharacters`）をmainから削除。Gitの履歴は残す。
+- `Editor/MascotCharacterBuilder.cs` が約0.95mの2〜3頭身ミニキャラを生成: calm=しろ（白い子犬、垂れ耳・青いバンダナ）、bright=こはく（オレンジのロボット、黒いモニター顔に光る目・アンテナ・胸パネル）、bunny=もも（桃色うさぎ、長い耳・リボン）、cat=むぎ（はちみつ色の子猫、鈴の首輪）。骨格・Humanoidアバター・体・頭（ロボは角丸の箱）・マズル・顔デカール（BlendShape）・耳／しっぽ（`CompanionSecondaryMotion` で揺れる、ロボはアンテナ）・MToon10マテリアル。`BuildAndReview` でプレビュー `artifacts/previews/Mascot-*.png`。プロフィールの表示名・性格もビルダーが更新。
+- 顔は `MascotFaceDriver`（BlendShape: Blink, EyeHappy, EyeWide, EyeSad, Smile, Frown, Blush, MouthOpen/Ee/Oh と目のボーン）。
+- v1.4.0として配布: versionName 1.4.0 / versionCode 5。
+- 注意: `Mathf.SmoothStep(a,b,t)` はGLSLのsmoothstepではない（ビルダーの `Step` を使う）。メッシュアセットを `CopySerialized` で上書きすると古いインデックスが残るので毎回作り直す（共有メッシュは1ビルドで1回だけ作る）。`Emotion` の並びは neutral, happy, sad, concerned, excited, embarrassed, curious。
 
 ## 2026-10-31: キャラクター作り直し（VRM）・VR版の操作をPC版と同等に
 
