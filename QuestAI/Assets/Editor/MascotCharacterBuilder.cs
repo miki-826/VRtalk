@@ -46,7 +46,7 @@ namespace QuestAI.Editor
             ("LeftUpperLeg", "Hips", new Vector3(-.065f, .27f, 0)), ("LeftLowerLeg", "LeftUpperLeg", new Vector3(-.065f, .16f, .005f)),
             ("LeftFoot", "LeftLowerLeg", new Vector3(-.065f, .06f, 0)), ("LeftToes", "LeftFoot", new Vector3(-.065f, .03f, .07f)) };
         static readonly Vector3 HeadCenter = new Vector3(0, .75f, 0);
-        const float EyeY = .735f, EyeX = .075f, EyeHalf = .026f;
+        const float EyeY = .735f, EyeX = .075f, EyeHalf = .026f, LookX = .007f, LookY = .005f;
         static Spec current;
 
         [MenuItem("Quest AI/Build mascot characters")]
@@ -227,24 +227,30 @@ namespace QuestAI.Editor
             }
             for (int side = -1; side <= 1; side += 2)
             {
-                float ex = side * EyeX; var eyeBone = rig.W(side < 0 ? "LeftEye" : "RightEye");
+                float ex = side * EyeX;
                 // side -1 is the character's left eye (on -X); h = +1 is always the outer side.
                 Vector2 P(float h, float y) => new Vector2(ex + side * h * EyeHalf, EyeY + y);
+                // The eyes are drawn on the head, so gaze slides them over its surface (each shape point is projected back onto
+                // the head) instead of turning them about a bone inside it, which sank them into the face when looking aside.
+                (string, Func<float, float, Vector2>)[] Look(Func<float, float, Vector2> at) => new (string, Func<float, float, Vector2>)[] {
+                    ("LookRight", (u, v) => at(u, v) + new Vector2(LookX, 0)), ("LookLeft", (u, v) => at(u, v) - new Vector2(LookX, 0)),
+                    ("LookUp", (u, v) => at(u, v) + new Vector2(0, LookY)), ("LookDown", (u, v) => at(u, v) - new Vector2(0, LookY)) };
                 const float closedThick = .0055f;
-                Decal(m, m.Sub(mat["Eye"]), 14, 8, .0015f + lift, eyeBone, (u, v) => { float h = u * 2 - 1; return P(h, Mathf.Lerp(Bottom(h), Top(h), v)); },
+                Func<float, float, Vector2> open = (u, v) => { float h = u * 2 - 1; return P(h, Mathf.Lerp(Bottom(h), Top(h), v)); };
+                Decal(m, m.Sub(mat["Eye"]), 14, 8, .0015f + lift, head, open, Look(open).Concat(new (string, Func<float, float, Vector2>)[] {
                     ("Blink", (u, v) => { float h = u * 2 - 1; return P(h * .95f, Closed(h) + (v - .5f) * closedThick); }),
                     ("EyeHappy", (u, v) => { float h = u * 2 - 1; return P(h * .95f, Arch(h) + (v - .5f) * closedThick); }),
                     ("EyeWide", (u, v) => { float h = u * 2 - 1; return P(h * 1.08f, Mathf.Lerp(Bottom(h), Top(h), v) * 1.14f); }),
-                    ("EyeSad", (u, v) => { float h = u * 2 - 1; return P(h, Mathf.Lerp(Bottom(h), Top(h) * .8f, v) + Sad(h)); }));
+                    ("EyeSad", (u, v) => { float h = u * 2 - 1; return P(h, Mathf.Lerp(Bottom(h), Top(h) * .8f, v) + Sad(h)); }) }).ToArray());
                 if (spec.kind != Kind.Robot)
                 {
                     // Two catchlights that shrink away when the eye closes.
                     foreach (var (cx, cy, r) in new[] { (-.35f, .45f, .4f), (.35f, -.4f, .18f) })
                     {
                         Vector2 Shine(float u, float v, float k, float dy) { float a = u * Mathf.PI * 2; return P(cx + Mathf.Cos(a) * v * r * k, cy * .03f + Mathf.Sin(a) * v * r * k * EyeHalf + dy); }
-                        Decal(m, m.Sub(mat["Shine"]), 12, 1, .0025f + lift, eyeBone, (u, v) => Shine(u, v, 1, 0),
+                        Decal(m, m.Sub(mat["Shine"]), 12, 1, .0025f + lift, head, (u, v) => Shine(u, v, 1, 0), Look((u, v) => Shine(u, v, 1, 0)).Concat(new (string, Func<float, float, Vector2>)[] {
                             ("Blink", (u, v) => Shine(u, v, 0, Closed(cx) - cy * .03f)), ("EyeHappy", (u, v) => Shine(u, v, 0, Arch(cx) - cy * .03f)),
-                            ("EyeWide", (u, v) => Shine(u, v, 1.1f, 0)), ("EyeSad", (u, v) => Shine(u, v, .9f, Sad(cx))));
+                            ("EyeWide", (u, v) => Shine(u, v, 1.1f, 0)), ("EyeSad", (u, v) => Shine(u, v, .9f, Sad(cx))) }).ToArray());
                     }
                 }
                 // Blush: soft ovals under the eyes that grow with the Blush shape.
@@ -284,7 +290,7 @@ namespace QuestAI.Editor
             if (spec.kind == Kind.Dog) Ellipsoid(m, m.Sub(mat["Nose"]), new Vector3(0, .703f, .2f), new Vector3(.026f, .019f, .017f), headWeight);
             // Bean-shaped body; the robot's is boxier.
             var torso = new List<Ring>();
-            foreach (var (y, rx, rz) in new[] { (.2f, .06f, .055f), (.24f, .11f, .1f), (.29f, .135f, .12f), (.35f, .143f, .127f), (.41f, .137f, .12f), (.47f, .12f, .106f), (.52f, .1f, .09f), (.57f, .075f, .07f), (.61f, .05f, .05f) })
+            foreach (var (y, rx, rz) in new[] { (.2f, .06f, .055f), (.24f, .105f, .1f), (.29f, .127f, .118f), (.35f, .132f, .124f), (.41f, .126f, .117f), (.47f, .112f, .104f), (.52f, .095f, .089f), (.57f, .072f, .07f), (.61f, .05f, .05f) })
                 torso.Add(new Ring(new Vector3(0, y, 0), Vector3.right * rx, Vector3.forward * rz, rig.Along(y, Spine)));
             Func<int, float, float> boxy = robot ? (i, th) => 1 / Mathf.Pow(Mathf.Pow(Mathf.Abs(Mathf.Cos(th)), 4) + Mathf.Pow(Mathf.Abs(Mathf.Sin(th)), 4), .25f) * .92f : (Func<int, float, float>)null;
             Loft(m, fur, torso, 32, true, true, boxy);
@@ -295,7 +301,7 @@ namespace QuestAI.Editor
                 Ellipsoid(m, belly, new Vector3(0, .4f, .118f), new Vector3(.075f, .065f, .014f), chest);
                 for (int i = -1; i <= 1; i++) Ellipsoid(m, m.Sub(mat[i == -1 ? "Accent" : i == 0 ? "Nose" : "Blush"]), new Vector3(i * .032f, .39f, .13f), new Vector3(.012f, .012f, .007f), chest, 6, 10);
             }
-            else Ellipsoid(m, belly, new Vector3(0, .36f, .085f), new Vector3(.095f, .105f, .055f), rig.W("Spine"));
+            else Ellipsoid(m, belly, new Vector3(0, .36f, .082f), new Vector3(.088f, .1f, .052f), rig.W("Spine"));
             var neck = rig.W("UpperChest");
             if (spec.kind == Kind.Dog)
             {
@@ -314,16 +320,16 @@ namespace QuestAI.Editor
                 string S(string bone) => (side < 0 ? "Left" : "Right") + bone;
                 // Stubby arm along ±X ending in a round paw.
                 var arm = new List<Ring>();
-                foreach (var (x, r) in new[] { (.1f, .042f), (.13f, .043f), (.19f, .039f), (.25f, .036f) })
-                    arm.Add(new Ring(new Vector3(side * x, .49f, 0), Vector3.up * r, Vector3.forward * r, rig.Along(x, (S("UpperArm"), .16f), (S("LowerArm"), .22f), (S("Hand"), .27f))));
-                Loft(m, robot ? joint : fur, arm, 16, false, false);
-                // A round shoulder centred on the arm's pivot, so the arm root never pokes out when it swings.
-                Ellipsoid(m, robot ? joint : fur, new Vector3(side * .1f, .49f, 0), new Vector3(.046f, .046f, .046f), rig.W(S("UpperArm")), 10, 16);
+                // A rounded end centred on the shoulder pivot, so the arm root stays inside it however the arm turns, then rings
+                // every centimetre so the elbow bends smoothly.
+                for (int k = 1; k < 6; k++) { float a = k * Mathf.PI / 12, r = .043f * Mathf.Sin(a); arm.Add(new Ring(new Vector3(side * (.1f - .043f * Mathf.Cos(a)), .49f, 0), Vector3.up * r, Vector3.forward * r, rig.W(S("UpperArm")))); }
+                for (float x = .1f; x <= .2601f; x += .01f) { float r = Mathf.Lerp(.043f, .036f, Mathf.InverseLerp(.1f, .26f, x)); arm.Add(new Ring(new Vector3(side * x, .49f, 0), Vector3.up * r, Vector3.forward * r, rig.Along(x, (S("UpperArm"), .165f), (S("LowerArm"), .215f), (S("Hand"), .27f)))); }
+                Loft(m, robot ? joint : fur, arm, 16, true, false);
                 Ellipsoid(m, robot ? fur : paw, new Vector3(side * .283f, .49f, 0), new Vector3(.05f, .046f, .05f), rig.W(S("Hand")), 10, 16);
                 // Short leg and an oval foot.
                 var leg = new List<Ring>();
-                foreach (var (y, r) in new[] { (.29f, .058f), (.21f, .055f), (.13f, .05f), (.07f, .047f) })
-                    leg.Add(new Ring(new Vector3(side * .065f, y, 0), Vector3.right * r, Vector3.forward * r, rig.Along(-y, (S("UpperLeg"), -.2f), (S("LowerLeg"), -.13f), (S("Foot"), -.07f))));
+                // Rings every centimetre so the knee bends smoothly.
+                for (float y = .29f; y >= .0699f; y -= .01f) { float r = Mathf.Lerp(.047f, .058f, Mathf.InverseLerp(.07f, .29f, y)); leg.Add(new Ring(new Vector3(side * .065f, y, 0), Vector3.right * r, Vector3.forward * r, rig.Along(-y, (S("UpperLeg"), -.19f), (S("LowerLeg"), -.13f), (S("Foot"), -.075f)))); }
                 Loft(m, robot ? joint : fur, leg, 16, false, false);
                 Ball(m, robot ? fur : paw, 10, 18, d => new Vector3(side * .065f, .042f, .025f) + Vector3.Scale(d, new Vector3(.058f, .043f, .08f)), d => rig.W(S("Foot"), S("Toes"), Mathf.InverseLerp(.02f, .08f, .025f + d.z * .08f)), new Vector3(side * .065f, .042f, .025f));
             }
@@ -350,29 +356,51 @@ namespace QuestAI.Editor
             else ear = DogEar();
             for (int side = -1; side <= 1; side += 2)
             {
-                Transform pivot;
+                Transform pivot; string name = side < 0 ? "Left ear spring" : "Right ear spring";
                 if (spec.kind == Kind.Dog)
-                    // Floppy ears hang from the sides of the head, tipped a little outward.
-                    pivot = Pivot(side < 0 ? "Left ear spring" : "Right ear spring", rig["Head"], HeadPoint(new Vector3(side * .8f, .55f, .05f).normalized, .008f), Quaternion.AngleAxis(-side * 30, Vector3.up) * Quaternion.AngleAxis(side * 18, Vector3.forward));
+                {
+                    // Floppy ears hang from the sides of the head with their broad side facing out, splayed a little away from it
+                    // (local +X is outward on both sides, so one turn about the local forward axis splays both).
+                    // The left ear is the exact mirror image of the right one (mirrored place, turn and mesh).
+                    var d = new Vector3(.8f, .55f, .05f).normalized; var n = HeadNormal(d); var up = Vector3.ProjectOnPlane(Vector3.up, n).normalized;
+                    var turn = Quaternion.LookRotation(Vector3.Cross(n, up), up) * Quaternion.AngleAxis(28, Vector3.forward); var at = HeadPoint(d, .004f);
+                    pivot = Pivot(name, rig["Head"], side > 0 ? at : new Vector3(-at.x, at.y, at.z), side > 0 ? turn : new Quaternion(turn.x, -turn.y, -turn.z, turn.w));
+                }
                 else
-                    pivot = Pivot(side < 0 ? "Left ear spring" : "Right ear spring", rig["Head"], HeadPoint(spec.kind == Kind.Bunny ? new Vector3(side * .32f, .95f, -.05f).normalized : new Vector3(side * .58f, .8f, .05f).normalized, -.012f),
-                        Quaternion.AngleAxis(-side * (spec.kind == Kind.Bunny ? 10 : 22), Vector3.forward) * Quaternion.AngleAxis(-6, Vector3.right));
+                {
+                    // Pointed ears stand between the head's surface normal and upright; their roots are buried in the head.
+                    var d = spec.kind == Kind.Bunny ? new Vector3(side * .32f, .95f, -.05f).normalized : new Vector3(side * .58f, .8f, .05f).normalized;
+                    pivot = Pivot(name, rig["Head"], HeadPoint(d), OnSurface(HeadNormal(d), spec.kind == Kind.Bunny ? .65f : .35f));
+                }
                 Part(spec.kind == Kind.Dog ? "Floppy ear" : "Ear", pivot, Vector3.zero, ear, mat["Ear"]);
+                if (spec.kind == Kind.Dog && side < 0) pivot.GetChild(pivot.childCount - 1).localScale = new Vector3(-1, 1, 1);
                 if (inner) Part("Inner ear", pivot, new Vector3(0, spec.kind == Kind.Bunny ? .015f : .01f, spec.kind == Kind.Bunny ? .017f : .017f), inner, mat["Inner"]);
                 if (side < 0) secondary.leftEar = pivot; else secondary.rightEar = pivot;
             }
             if (spec.kind == Kind.Bunny)
             {
                 // A bow by the right ear.
-                var bow = HeadPoint(new Vector3(.5f, .72f, .35f).normalized, .01f); var w = rig.W("Head");
-                var bowParent = Pivot("Bow", rig["Head"], bow, Quaternion.AngleAxis(-25, Vector3.forward));
+                var bowAt = new Vector3(.5f, .72f, .35f).normalized;
+                var bowParent = Pivot("Bow", rig["Head"], HeadPoint(bowAt, .004f), Quaternion.LookRotation(HeadNormal(bowAt), Vector3.ProjectOnPlane(Vector3.up, HeadNormal(bowAt))) * Quaternion.AngleAxis(-25, Vector3.forward));
                 foreach (int s in new[] { -1, 1 }) Part("Bow loop", bowParent, new Vector3(s * .028f, 0, 0), Sweep("BowLoop", 10, 14, t => { float a = t * Mathf.PI; return (new Vector3(-Mathf.Cos(a) * .026f, 0, 0), Mathf.Max(.001f, Mathf.Sin(a) * .02f), Mathf.Max(.001f, Mathf.Sin(a) * .01f)); }), mat["Accent"]);
                 Part("Bow knot", bowParent, Vector3.zero, Sweep("BowKnot", 8, 12, t => { float a = t * Mathf.PI; return (new Vector3(0, -Mathf.Cos(a) * .011f, 0), Mathf.Max(.001f, Mathf.Sin(a) * .011f), Mathf.Max(.001f, Mathf.Sin(a) * .011f)); }), mat["Accent"]);
             }
             var tail = Pivot("Tail spring", rig["Hips"], new Vector3(0, .27f, -.115f), Quaternion.identity); secondary.tail = tail;
-            if (spec.kind == Kind.Bunny) Part("Cotton tail", tail, new Vector3(0, 0, -.03f), Pompom(), mat["Belly"]);
+            if (spec.kind == Kind.Bunny) Part("Cotton tail", tail, new Vector3(0, 0, -.02f), Pompom(), mat["Belly"]);
             else if (spec.kind == Kind.Cat) Part("Tail", tail, Vector3.zero, CatTail(), mat["Fur"]);
             else Part("Curly tail", tail, Vector3.zero, DogTail(), mat["Fur"]);
+        }
+        // Outward normal of the head at direction d, from two nearby surface points.
+        static Vector3 HeadNormal(Vector3 d)
+        {
+            var a = Vector3.Cross(d, Mathf.Abs(d.y) < .9f ? Vector3.up : Vector3.right).normalized; var b = Vector3.Cross(d, a);
+            var p = HeadPoint(d); var n = Vector3.Cross(HeadPoint((d + a * .01f).normalized) - p, HeadPoint((d + b * .01f).normalized) - p).normalized;
+            return Vector3.Dot(n, d) < 0 ? -n : n;
+        }
+        // A frame whose up axis leans from the surface normal toward upright by `upright` (0..1), facing forward.
+        static Quaternion OnSurface(Vector3 normal, float upright)
+        {
+            var up = Vector3.Lerp(normal, Vector3.up, upright).normalized; return Quaternion.LookRotation(Vector3.ProjectOnPlane(Vector3.forward, up).normalized, up);
         }
         static void Part(string name, Transform parent, Vector3 at, Mesh mesh, Material material, Quaternion? rotation = null)
         {
@@ -381,23 +409,28 @@ namespace QuestAI.Editor
             go.GetComponent<MeshFilter>().sharedMesh = mesh; var r = go.GetComponent<MeshRenderer>(); r.sharedMaterial = material; r.shadowCastingMode = ShadowCastingMode.On;
         }
         // A long bunny ear: an elliptic section that swells then narrows to a soft tip, bending slightly back.
-        static Mesh BunnyEar(string name, float length, float width, float depth) => Sweep(name, 24, 16, t =>
+        // Ears start 3 cm below their pivot so the root is buried in the head and never shows a gap as they sway.
+        const float EarRoot = .03f;
+        static Mesh BunnyEar(string name, float length, float width, float depth) => Sweep(name, 28, 16, t =>
         {
+            float y = Mathf.Lerp(-EarRoot, length, t), s = Mathf.Clamp01(y / length);
             // Sin(π) is a tiny negative float, and a negative base to a fractional power is NaN.
-            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Sin(Mathf.Lerp(.35f, Mathf.PI, t))), .55f);
-            return (new Vector3(0, t * length, -t * t * length * .12f), width * .5f * Mathf.Max(.05f, profile * (1 - .25f * t)), depth * .5f * Mathf.Max(.15f, profile));
+            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Sin(Mathf.Lerp(.35f, Mathf.PI, s))), .55f);
+            return (new Vector3(0, y, -s * s * length * .12f), width * .5f * Mathf.Max(.05f, profile * (1 - .25f * s)), depth * .5f * Mathf.Max(.15f, profile));
         });
         // A cat ear: a cone with an elliptic base that is flatter front to back, rounded at the tip.
-        static Mesh CatEar(string name, float height, float width, float depth) => Sweep(name, 14, 16, t =>
+        static Mesh CatEar(string name, float height, float width, float depth) => Sweep(name, 18, 16, t =>
         {
-            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Cos(t * Mathf.PI * .5f)), .85f);
-            return (new Vector3(0, t * height, -t * t * height * .1f), width * Mathf.Max(.04f, profile), depth * .5f * Mathf.Max(.12f, profile));
+            float y = Mathf.Lerp(-EarRoot, height, t), s = Mathf.Clamp01(y / height);
+            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Cos(s * Mathf.PI * .5f)), .85f);
+            return (new Vector3(0, y, -s * s * height * .1f), width * Mathf.Max(.04f, profile), depth * .5f * Mathf.Max(.12f, profile));
         });
         // A floppy dog ear: a flat rounded flap hanging down, its broad side facing out from the head.
-        static Mesh DogEar() => Sweep("DogEar", 18, 16, t =>
+        static Mesh DogEar() => Sweep("DogEar", 22, 16, t =>
         {
-            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Sin(Mathf.Lerp(.25f, Mathf.PI, t))), .6f);
-            return (new Vector3(t * t * .025f, -t * .17f, 0), .018f * Mathf.Max(.3f, profile), .07f * Mathf.Max(.08f, profile));
+            float y = Mathf.Lerp(EarRoot, -.17f, t), s = Mathf.Clamp01(-y / .17f);
+            float profile = Mathf.Pow(Mathf.Max(0, Mathf.Sin(Mathf.Lerp(.25f, Mathf.PI, s))), .6f);
+            return (new Vector3(s * s * .025f, y, 0), .018f * Mathf.Max(.3f, profile), .07f * Mathf.Max(.08f, profile));
         });
         static Vector3 Spline(Vector3[] path, float t)
         {
@@ -407,10 +440,10 @@ namespace QuestAI.Editor
             return .5f * (2 * p1 + (p2 - p0) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (3 * p1 - p0 - 3 * p2 + p3) * u * u * u);
         }
         // A cat tail seen from the side as a soft "?".
-        static readonly Vector3[] CatTailPath = { new Vector3(0, 0, 0), new Vector3(0, -.03f, -.08f), new Vector3(.015f, -.02f, -.17f), new Vector3(.03f, .06f, -.23f), new Vector3(.03f, .15f, -.22f), new Vector3(.02f, .21f, -.17f) };
+        static readonly Vector3[] CatTailPath = { new Vector3(0, 0, .035f), new Vector3(0, 0, 0), new Vector3(0, -.03f, -.08f), new Vector3(.015f, -.02f, -.17f), new Vector3(.03f, .06f, -.23f), new Vector3(.03f, .15f, -.22f), new Vector3(.02f, .21f, -.17f) };
         static Mesh CatTail() => Sweep("CatTail", 32, 14, t => { float r = Mathf.Max(.004f, Mathf.Lerp(.028f, .022f, t) * Mathf.Min(1, Mathf.Sin(Mathf.Lerp(.25f, Mathf.PI, t)) * 3.5f)); return (Spline(CatTailPath, t), r, r); });
         // A short tail curling up over the back.
-        static readonly Vector3[] DogTailPath = { new Vector3(0, 0, 0), new Vector3(0, .03f, -.05f), new Vector3(0, .09f, -.07f), new Vector3(0, .13f, -.04f), new Vector3(0, .12f, -.01f) };
+        static readonly Vector3[] DogTailPath = { new Vector3(0, 0, .035f), new Vector3(0, 0, 0), new Vector3(0, .03f, -.05f), new Vector3(0, .09f, -.07f), new Vector3(0, .13f, -.04f), new Vector3(0, .12f, -.01f) };
         static Mesh DogTail() => Sweep("DogTail", 20, 14, t => { float r = Mathf.Max(.004f, .03f * Mathf.Min(1, Mathf.Sin(Mathf.Lerp(.3f, Mathf.PI, t)) * 2.5f)); return (Spline(DogTailPath, t), r, r); });
         static Mesh Pompom() => Sweep("BunnyTail", 12, 16, t => { float a = t * Mathf.PI; return (new Vector3(0, -Mathf.Cos(a) * .045f, 0), Mathf.Max(.002f, Mathf.Sin(a) * .05f), Mathf.Max(.002f, Mathf.Sin(a) * .045f)); });
         static readonly Dictionary<string, Mesh> swept = new Dictionary<string, Mesh>();
@@ -521,7 +554,7 @@ namespace QuestAI.Editor
                 binding.leftLeg = rig["LeftUpperLeg"]; binding.rightLeg = rig["RightUpperLeg"]; binding.leftKnee = rig["LeftLowerLeg"]; binding.rightKnee = rig["RightLowerLeg"];
                 binding.faceMeshes = Array.Empty<SkinnedMeshRenderer>(); binding.blinkShape = binding.mouthShape = binding.lookXShape = binding.lookYShape = "";
                 binding.animationYawOffset = AnimationYaw(root, player);
-                var driver = root.AddComponent<MascotFaceDriver>(); driver.face = faceRenderer; driver.leftEye = rig["LeftEye"]; driver.rightEye = rig["RightEye"];
+                var driver = root.AddComponent<MascotFaceDriver>(); driver.face = faceRenderer; binding.armSpread = 28;
                 ContactShadow(root);
                 foreach (var t in root.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = 8;
                 root.AddComponent<BodySystem>().rig = binding;
@@ -644,6 +677,9 @@ namespace QuestAI.Editor
             var player = go.GetComponent<ClipAnimator>(); var rig = go.GetComponent<CharacterRigBinding>();
             player.idle.SampleAnimation(player.animator.gameObject, .5f);
             if (rig.animationYawOffset != 0) rig.hips.rotation = Quaternion.AngleAxis(rig.animationYawOffset, go.transform.up) * rig.hips.rotation;
+            // The same outward arm angle BodySystem adds at runtime.
+            var f = go.transform.forward;
+            if (rig.armSpread != 0) { rig.leftArm.rotation = Quaternion.AngleAxis(-rig.armSpread, f) * rig.leftArm.rotation; rig.rightArm.rotation = Quaternion.AngleAxis(rig.armSpread, f) * rig.rightArm.rotation; }
         }
         // Edit-mode preview of the runtime face with the weights MascotFaceDriver settles on for an emotion.
         static void Express(GameObject go, Emotion emotion)
