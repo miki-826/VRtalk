@@ -17,7 +17,9 @@
     "VRM10.MToon10",
     "UniGLTF",
     "UniGLTF.Editor",
-    "UniHumanoid"
+    "UniHumanoid",
+    "VrmLib",
+    "UniGLTF.Utils"
   ],
   "includePlatforms": [
     "Editor"

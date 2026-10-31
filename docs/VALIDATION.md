@@ -2,7 +2,7 @@
 
 ## v1.2.0（2026-10-31）
 
-- EditMode **83/83成功**、PlayMode **26/26成功**（コード生成したミニキャラ4体のHumanoidリグ・表情BlendShape・耳としっぽ・スキン、Quest操作のコンパイルを含む。2026-10-31 再実行）。
+- EditMode **83/83成功**、PlayMode **29/29成功**（追加したVRMの読み込み・歩行・手振り・肩すくめ・URLからのダウンロード・壊れたファイルでメニューに留まること、コード生成したミニキャラ4体のHumanoidリグ・表情BlendShape・耳としっぽ・スキン、Quest操作のコンパイルを含む。2026-10-31 再実行）。
 - Windowsビルドと `--desktop-smoke` 成功: `artifacts/desktop-smoke-v1.2.0.log`。リビングでしろの表示を確認。
 - Quest用APKビルド・v2署名検証成功。`com.vibecodingclub.questai`、versionName **1.2.0**、versionCode **3**、ARM64、`oculus.software.overlay_keyboard` 宣言あり。
 - 配布パッケージ: `artifacts/releases/v1.2.0/`（`tools/package-release.ps1 -Version 1.2.0`）。ZIPの整合性を確認。

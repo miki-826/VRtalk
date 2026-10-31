@@ -25,6 +25,7 @@ namespace QuestAI.Tests
                     var mesh=renderer.sharedMesh;Assert.That(mesh.boneWeights.Length,Is.EqualTo(mesh.vertexCount));
                     Assert.That(mesh.vertices.All(v=>!float.IsNaN(v.x)&&!float.IsNaN(v.y)&&!float.IsNaN(v.z)),Is.True);
                 }
+                foreach(var filter in prefab.GetComponentsInChildren<MeshFilter>())Assert.That(filter.sharedMesh.vertices.All(v=>!float.IsNaN(v.x)&&!float.IsNaN(v.y)&&!float.IsNaN(v.z)),Is.True,profile.id+" "+filter.name);
                 float eyes=rig.animator.GetBoneTransform(HumanBodyBones.LeftEye).position.y-prefab.transform.position.y;
                 Assert.That(eyes,Is.InRange(.6f,1f),profile.id+" chibi-sized");
             }

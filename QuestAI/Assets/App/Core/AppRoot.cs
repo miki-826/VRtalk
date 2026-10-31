@@ -16,6 +16,7 @@ namespace QuestAI
         public static Func<IMemoryRepository> EditorRepositoryFactory;
         public GameObject xrRigPrefab;
         public CharacterProfile[] characters;
+        CharacterProfile[] builtIn = Array.Empty<CharacterProfile>();
         public EnvironmentProfile[] environments;
         public AppSettings Settings { get; private set; }
         public IMemoryRepository Repository { get; private set; }
@@ -49,7 +50,7 @@ namespace QuestAI
                 Settings=JsonConvert.DeserializeObject<AppSettings>(Repository.Load("settings")??"null")??new AppSettings();
                 JevStatus=new BehaviorConnectionStatus(()=>Secrets.Get("Jev"),()=>Settings.behaviorModel);
                 Settings.voiceVolume=Mathf.Clamp01(Settings.voiceVolume);Settings.lookStrength=Mathf.Clamp01(Settings.lookStrength);Settings.uiScale=Mathf.Clamp(Settings.uiScale,.8f,1.3f);
-                characters=Resources.LoadAll<CharacterProfile>("Profiles").OrderBy(x=>x.id).ToArray();environments=Resources.LoadAll<EnvironmentProfile>("Profiles").OrderBy(x=>x.id).ToArray();
+                builtIn=Resources.LoadAll<CharacterProfile>("Profiles").OrderBy(x=>x.id).ToArray();RefreshCustomModels();environments=Resources.LoadAll<EnvironmentProfile>("Profiles").OrderBy(x=>x.id).ToArray();
                 CreateRig();Body=gameObject.AddComponent<UserBodyTracker>();Body.head=Head;Body.trackingSpace=TrackingSpace;UI=gameObject.AddComponent<WorldUI>();UI.Initialize(this);gameObject.AddComponent<XRPointerInput>().Initialize(this);
                 Application.targetFrameRate=72;
                 // Rooms cannot be started until the menu scene is fully registered.
@@ -97,9 +98,13 @@ namespace QuestAI
             SceneManager.SetActiveScene(SceneManager.GetSceneByName(name));
             if(LightmapSettings.lightProbes!=null&&LightmapSettings.lightProbes.count>0)LightProbes.TetrahedralizeAsync();
         }
+        // Built-in characters followed by the user's VRM files (CustomModels.Folder). Returns how many models were found.
+        public int RefreshCustomModels(){var custom=CustomModels.Scan();characters=builtIn.Concat(custom).ToArray();return custom.Length;}
+        // The shared humanoid animation library, taken from a built-in character that uses it.
+        public ClipAnimator AnimationLibrary=>builtIn.Select(x=>x.prefab?x.prefab.GetComponent<ClipAnimator>():null).FirstOrDefault(x=>x&&x.animator&&x.animator.avatar&&x.animator.avatar.isHuman);
         public async void StartSession(bool resume)
         {
-            if(changing)return;changing=true;UI.ShowStatus("部屋を準備しています…");CancelOperations();
+            if(changing)return;changing=true;UI.ShowStatus("部屋を準備しています…");CancelOperations();GameObject custom=null;
             try
             {
                 SaveSession();if(Brain){Destroy(Brain.gameObject);Brain=null;}
@@ -108,9 +113,13 @@ namespace QuestAI
                 var profile=characters.FirstOrDefault(x=>x.id==Settings.characterId)??characters[0];
                 var environment=environments.FirstOrDefault(x=>x.id==Settings.environmentId)??environments[0];
                 Settings.characterId=profile.id;Settings.environmentId=environment.id;SaveSettings();
+                // A user model is loaded before leaving the current scene, so a bad file leaves the menu as it was.
+                if(!profile.prefab){UI.ShowStatus("モデルを読み込んでいます…");custom=await CustomModels.Load(profile,AnimationLibrary,operations.Token);DontDestroyOnLoad(custom);}
                 await LoadScene(environment.sceneName);ResetViewpoint();
                 var world=SceneAwareness.Scan(SceneManager.GetSceneByName(environment.sceneName),environment.characterPosition);
-                var avatar=Instantiate(profile.prefab,environment.characterPosition,Quaternion.Euler(0,180,0));
+                GameObject avatar;
+                if(custom){SceneManager.MoveGameObjectToScene(custom,SceneManager.GetActiveScene());custom.transform.SetPositionAndRotation(environment.characterPosition,Quaternion.Euler(0,180,0));custom.SetActive(true);avatar=custom;custom=null;}
+                else avatar=Instantiate(profile.prefab,environment.characterPosition,Quaternion.Euler(0,180,0));
                 var body=avatar.GetComponent<BodySystem>();body.user=Head;
                 var locomotion=avatar.AddComponent<CharacterLocomotion>();locomotion.world=world;locomotion.user=Head;
                 Brain=avatar.AddComponent<CharacterBrain>();Brain.profile=profile;Brain.body=body;Brain.user=Head;Brain.environment=environment.displayName;Brain.world=world;Brain.locomotion=locomotion;Brain.tracker=Body;Body.world=world;Brain.settings=Settings;Brain.repository=Repository;Brain.secrets=Secrets;
@@ -123,8 +132,9 @@ namespace QuestAI
                 var journey=CompanionJourney.Load(Repository,profile.id);journey.Visit(environment.id);journey.Save(Repository,profile.id);
                 ApplyTime();UI.Session();if(paused||!focused)Brain.Suspend();SaveSession();
             }
+            catch(OperationCanceledException){}
             catch(Exception e){UI.ShowStatus(CharacterBrain.SafeError(e));}
-            finally{changing=false;}
+            finally{if(custom)Destroy(custom);changing=false;}
         }
         string currentSession;
         public async void ReturnMenu()

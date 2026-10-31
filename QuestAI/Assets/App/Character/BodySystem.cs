@@ -146,6 +146,14 @@ namespace QuestAI
                 // Without a mouth shape, a small speech-driven head bob shows who is talking.
                 if(string.IsNullOrEmpty(rig.mouthShape))head.x+=speech*6;
                 PoseBone(rig.head,head);PoseBone(rig.chest,new Vector3(0,chest.y,0));
+                // Gestures the clip library has no clip for are layered on the animated pose about the character's own axes.
+                if(proceduralGesture)
+                    switch(decision.gesture)
+                    {
+                        case Gesture.wave:Arm(rig.rightArm,rig.rightForearm,0,(140+Mathf.Sin(age*10)*18)*envelope,25*envelope,1);break;
+                        case Gesture.shrug:Arm(rig.leftArm,rig.leftForearm,0,25*envelope,75*envelope,-1);Arm(rig.rightArm,rig.rightForearm,0,25*envelope,75*envelope,1);break;
+                        case Gesture.laugh:Turn(rig.chest,Quaternion.AngleAxis((Mathf.Sin(age*22)*4-6)*envelope,transform.right));break;
+                    }
             }
             else
             {
