@@ -8,9 +8,12 @@
 |Poly Haven wood_floor_deck|[Poly Haven wood_floor_deck](https://polyhaven.com/a/wood_floor_deck)|CC0 1.0|`QuestAI/Assets/ThirdParty/PolyHaven/wood_floor_deck.jpg`|
 |Poly Haven rock_boulder_dry|[Poly Haven rock_boulder_dry](https://polyhaven.com/a/rock_boulder_dry)|CC0 1.0|`QuestAI/Assets/ThirdParty/PolyHaven/rock_boulder_dry.jpg`|
 |RobotExpressive（Tomás Laulhé / Quaternius作、Don McCurdy改変。three.js r160 examples、2026-10-24取得。glbを `tools/convert-robot.py` でFBXへ変換）|[three.js RobotExpressive](https://github.com/mrdoob/three.js/tree/r160/examples/models/gltf/RobotExpressive)|CC0 1.0|`QuestAI/Assets/ThirdParty/RobotExpressive`（歩行・手振り等14アニメーションと表情モーフ3種。キャラクター「ロボ」）|
+|UniVRM / UniGLTF v0.131.4（VRM Consortium、ousttrue、MToon: Masataka SUMI）|[vrm-c/UniVRM](https://github.com/vrm-c/UniVRM)|MIT|Package Manager（`Packages/manifest.json`）。キャラクターのトゥーンシェーダー（MToon10）として使用。原文は `StreamingAssets/Licenses/UniVRM-LICENSE.txt` と `com.vrmc.gltf-UniGLTF-LICENSE.md`|
 |Noto Sans CJK JP|[Noto Sans CJK JP](https://github.com/notofonts/noto-cjk)|SIL Open Font License 1.1|`QuestAI/Assets/Resources/Fonts/NotoSansJP.otf`|
 
 Kenney原文はThirdParty/Kenney内のLicenseファイル、Noto原文はThirdParty/Noto/LICENSE.txtに同梱しています。Poly Havenの[ライセンス](https://polyhaven.com/license)はCC0で、同梱画像からUnityマテリアルを作成しています。無料素材を使用した壁・床・梁・暖炉・窓などの部屋構成とシーン生成コードはこのプロジェクトで制作しています。
+
+しろ・こはく・もも・むぎのモデル（骨格・体・顔・髪・服・耳・しっぽ・テクスチャ）は外部モデルを使わず、`QuestAI/Assets/Editor/OriginalCharacterBuilder.cs` がコードで一から生成しています。
 
 白いちびキャラは利用者提供の `model/character/chibi` が原本です。その複製にURPマテリアル・表情BlendShape・ボーン対応を追加しました。提供モデルの権利条件は原本に従います。
 

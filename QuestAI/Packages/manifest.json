@@ -49,6 +49,8 @@
     "com.meta.xr.sdk.core": "205.0.0",
     "com.meta.xr.sdk.interaction": "205.0.0",
     "com.meta.xr.sdk.interaction.ovr": "205.0.0",
-    "com.meta.xr.sdk.audio": "85.0.0"
+    "com.meta.xr.sdk.audio": "85.0.0",
+    "com.vrmc.gltf": "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#v0.131.4",
+    "com.vrmc.vrm": "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#v0.131.4"
   }
 }

@@ -67,6 +67,9 @@ namespace QuestAI
         readonly GestureDetector detector = new GestureDetector();
         Ray? hand, deliberate; bool waveRequested;
         public bool Crouching => detector.Crouching;
+        // Seated or limited-space play on Quest: the left stick click lowers the rig, and the detector sees it as a real crouch.
+        public const float SeatedCrouchDrop = .6f;
+        public bool SeatedCrouch;
         public string PointingAt => detector.PointingAt;
         public UserGesture Last { get; private set; }
         float lastTime = -10;
@@ -81,6 +84,7 @@ namespace QuestAI
         {
             if (!head) return;
             float height = trackingSpace ? trackingSpace.InverseTransformPoint(head.position).y : head.position.y;
+            if (SeatedCrouch) height -= SeatedCrouchDrop;
             var gesture = detector.Step(Time.time, height, head.position, head.right, deliberate ?? hand, world, deliberate.HasValue);
             deliberate = null;
             if (waveRequested) { waveRequested = false; if (gesture == UserGesture.none) gesture = UserGesture.wave; }

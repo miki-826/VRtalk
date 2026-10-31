@@ -11,7 +11,13 @@
     "Oculus.VR",
     "Oculus.VR.Editor",
     "Unity.ugui",
-    "UnityEditor.TestRunner"
+    "UnityEditor.TestRunner",
+    "VRM10",
+    "VRM10.Editor",
+    "VRM10.MToon10",
+    "UniGLTF",
+    "UniGLTF.Editor",
+    "UniHumanoid"
   ],
   "includePlatforms": [
     "Editor"

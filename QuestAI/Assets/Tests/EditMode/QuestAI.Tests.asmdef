@@ -1,7 +1,8 @@
 {
   "name": "QuestAI.Tests",
   "references": [
-    "QuestAI.Runtime"
+    "QuestAI.Runtime",
+    "VRM10"
   ],
   "optionalUnityReferences": [
     "TestAssemblies"

@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $taskWindows 'WhiteRoom.exe')) -or -
 $taskOutput = Join-Path $taskRoot "artifacts/releases/v$Version"
 New-Item -ItemType Directory -Path $taskOutput -Force | Out-Null
 $taskZip = Join-Path $taskOutput 'VRtalk-Windows.zip'
-Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $taskStream = [System.IO.File]::Open($taskZip, [System.IO.FileMode]::Create)
 $taskArchive = [System.IO.Compression.ZipArchive]::new($taskStream, [System.IO.Compression.ZipArchiveMode]::Create)
 try {

@@ -10,7 +10,10 @@
     "Unity.InputSystem",
     "Oculus.VR",
     "Oculus.Interaction",
-    "Meta.XR.Audio"
+    "Meta.XR.Audio",
+    "VRM10",
+    "UniGLTF",
+    "UniHumanoid"
   ],
   "autoReferenced": true
 }

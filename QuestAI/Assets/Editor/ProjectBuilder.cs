@@ -75,7 +75,7 @@ namespace QuestAI.Editor
                     if(name=="OculusQuestFeature")feature.enabled=false;
                 }EditorUtility.SetDirty(xr);
             }
-            var config=OVRProjectConfig.CachedProjectConfig;config.targetDeviceTypes=new List<OVRProjectConfig.DeviceType>{OVRProjectConfig.DeviceType.Quest3S,OVRProjectConfig.DeviceType.Quest3};config.handTrackingSupport=OVRProjectConfig.HandTrackingSupport.ControllersAndHands;EditorUtility.SetDirty(config);EditorUtility.SetDirty(general);EditorUtility.SetDirty(general.Manager);
+            var config=OVRProjectConfig.CachedProjectConfig;config.targetDeviceTypes=new List<OVRProjectConfig.DeviceType>{OVRProjectConfig.DeviceType.Quest3S,OVRProjectConfig.DeviceType.Quest3};config.handTrackingSupport=OVRProjectConfig.HandTrackingSupport.ControllersAndHands;config.requiresSystemKeyboard=true;EditorUtility.SetDirty(config);EditorUtility.SetDirty(general);EditorUtility.SetDirty(general.Manager);
         }
         static Material Mat(string name,Color color,string texture=null,bool emission=false)
         {

@@ -1,5 +1,25 @@
 # Claude Code 引き継ぎ
 
+## 2026-10-31: キャラクターを自作モデルに置き換え（VRoid不使用）
+
+- ユーザー指示「このモデルはあなたが作成したやつ？違うなら自分で一から作成したものにして」。VRoidサンプル4体（`ThirdParty/VRoidSamples`）と `VrmCharacterBuilder` / `VrmFaceDriver` を削除。
+- `Editor/OriginalCharacterBuilder.cs` が骨格・Humanoidアバター（`AvatarBuilder`）・体／服（リングのロフト）・頭（パラメトリック）・顔（頭に投影したデカール＋BlendShape）・髪（頭と体の楕円体ハルに沿って伸ばす束＋スプリング鎖）・虹彩／髪／口のテクスチャ・MToon10マテリアルをすべて生成。`BuildAndReview` でプレビュー `artifacts/previews/Original-*.png`。
+- 実行時: 顔は `AnimeFaceDriver`（BlendShape: Blink, EyeHappy, EyeWide, BrowSad, BrowUp, Smile, Frown, Blush, MouthOpen/Ee/Oh と目のボーン）、髪は `HairSpring`（ベルレ法の鎖、頭と胸の球コライダー）。
+- v1.3.0として配布: versionName 1.3.0 / versionCode 4。GitHub Releases `v1.3.0` にAPK・Windows ZIP・SHA256SUMS。feature/vrm-characters-vr-parity（v1.2.0を含む）をmainへマージ。
+- 注意: `Mathf.SmoothStep(a,b,t)` はGLSLのsmoothstepではない（ビルダーの `Step` を使う）。メッシュアセットを `CopySerialized` で上書きすると古いインデックスが残るので毎回作り直す。`Emotion` の並びは neutral, happy, sad, concerned, excited, embarrassed, curious。
+
+## 2026-10-31: キャラクター作り直し（VRM）・VR版の操作をPC版と同等に
+
+- ユーザー指示「VR版でも現在の内容を適用」「キャラが微妙なので高品質に作り直す」。確認の結果、PC版の操作をすべてQuestでも使えるようにする／アニメ調VRM／ロボ以外の4人を作り直す、に決定。
+- キャラ: CC0のVRoidサンプル（`Assets/ThirdParty/VRoidSamples`、LICENSE.md）をUniVRM v0.131.4（VRM 1.0インポーター、`Packages/manifest.json`）で移行し、URPのMToon10で描画。calm=AvatarSample_F、bright=AvatarSample_E、bunny=AvatarSample_G、cat=桜田史利矢。生成は `Editor/VrmCharacterBuilder.cs`（`BuildAndReview` でプレビュー `artifacts/previews/Vrm-*.png`）。目の高さで1.3〜1.42 mに縮小。テクスチャはAndroidで1024px・ASTC 6x6。
+- 顔は `VrmFaceDriver`（`FaceDriver` 派生）がVRMの表情・視線（目のボーン）・母音の口形を駆動。BodySystemが毎フレーム呼ぶ。VRMはピッチ上向きが正なので符号反転して渡す。髪・服のスプリングボーンはVrm10Instance（実行順11000）が最終姿勢の後に計算。アニメーションはWhiteChibiと同じQuaternius CC0ライブラリ（animationYawOffset=180を自動判定）。
+- MonoBehaviourは1ファイル1クラス（ファイル名＝クラス名）にすること。VrmFaceDriverを別クラスと同居させるとPrefab上でMissing Scriptになった。
+- エディターのバッチ撮影ではSetBlendShapeWeightが描画に反映されないため、プレビューの表情は顔メッシュをBakeMeshした複製で撮る（実行時は問題なし、PlayMode画像で確認）。初回フレームはライトプローブ未計算で緑色になるため1回空撮りする。
+- VR操作: 左スティック移動（WASD相当、部屋の範囲とキャラ手前で停止）、右スティック30度スナップターン、右グリップ=指さし（F）、Y=手を振る（H）、左スティック押し込み=しゃがむ（C、`UserBodyTracker.SeatedCrouch`）、X=PTT（Aに加えて）。部屋開始時に `AppRoot.ResetViewpoint` で位置・向きを戻す。
+- 文字入力: Questでは `TouchScreenKeyboard`（システムキーボード、`requiresSystemKeyboard` とmanifestの `oculus.software.overlay_keyboard`）を「キーボード」ボタンで開き、Doneで送信。
+- 検証: EditMode 83/83、PlayMode 26/26、APKビルド成功（191,654,283 bytes、SHA256 `03173E0412B089414251B08CC75C5C475E2251DEF6673F3777794DD41AFDC2A2`、版は1.1.0のまま）。Quest実機でのスティック操作・システムキーボード・描画負荷は未確認（Questが未許可/未接続）。
+- v1.2.0として配布: versionName 1.2.0 / versionCode 3。GitHub Releases `v1.2.0` にAPK・Windows ZIP・SHA256SUMSを掲載。`package-release.ps1` はWindows PowerShell 5.1でも動くよう `System.IO.Compression` を読み込む。
+
 ## 2026-10-25: 動作の精度・ももとむぎ
 
 - v1.1.0追加改良: 腕を保った移動・旋回（非motionの `keys` が1個・腕だけのキーなら重ねる）、床座りの保持・時間指定・立つ補間、自然な肘の手振り、移動対象の注視、否定指示を優先。
