@@ -10,6 +10,9 @@ namespace QuestAI
         public Transform leftLeg, rightLeg, leftKnee, rightKnee, hips;
         // Corrects a retargeted library whose body faces opposite to this model's authored forward axis.
         public float animationYawOffset;
+        // Degrees the arms are held out from the sides over the animation, for round-bodied characters whose arms would
+        // otherwise hang inside the body.
+        public float armSpread;
         public SkinnedMeshRenderer[] faceMeshes;
         public Vector3 leftArmRestEuler = new Vector3(0,0,-65), rightArmRestEuler = new Vector3(0,0,65);
         public string blinkShape = "Blink", mouthShape = "MouthOpen", lookXShape = "LookX", lookYShape = "LookY";
