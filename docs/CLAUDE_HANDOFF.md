@@ -1,5 +1,13 @@
 # Claude Code 引き継ぎ
 
+## 2026-10-31: キャラクターを自作モデルに置き換え（VRoid不使用）
+
+- ユーザー指示「このモデルはあなたが作成したやつ？違うなら自分で一から作成したものにして」。VRoidサンプル4体（`ThirdParty/VRoidSamples`）と `VrmCharacterBuilder` / `VrmFaceDriver` を削除。
+- `Editor/OriginalCharacterBuilder.cs` が骨格・Humanoidアバター（`AvatarBuilder`）・体／服（リングのロフト）・頭（パラメトリック）・顔（頭に投影したデカール＋BlendShape）・髪（頭と体の楕円体ハルに沿って伸ばす束＋スプリング鎖）・虹彩／髪／口のテクスチャ・MToon10マテリアルをすべて生成。`BuildAndReview` でプレビュー `artifacts/previews/Original-*.png`。
+- 実行時: 顔は `AnimeFaceDriver`（BlendShape: Blink, EyeHappy, EyeWide, BrowSad, BrowUp, Smile, Frown, Blush, MouthOpen/Ee/Oh と目のボーン）、髪は `HairSpring`（ベルレ法の鎖、頭と胸の球コライダー）。
+- v1.3.0として配布: versionName 1.3.0 / versionCode 4。GitHub Releases `v1.3.0` にAPK・Windows ZIP・SHA256SUMS。feature/vrm-characters-vr-parity（v1.2.0を含む）をmainへマージ。
+- 注意: `Mathf.SmoothStep(a,b,t)` はGLSLのsmoothstepではない（ビルダーの `Step` を使う）。メッシュアセットを `CopySerialized` で上書きすると古いインデックスが残るので毎回作り直す。`Emotion` の並びは neutral, happy, sad, concerned, excited, embarrassed, curious。
+
 ## 2026-10-31: キャラクター作り直し（VRM）・VR版の操作をPC版と同等に
 
 - ユーザー指示「VR版でも現在の内容を適用」「キャラが微妙なので高品質に作り直す」。確認の結果、PC版の操作をすべてQuestでも使えるようにする／アニメ調VRM／ロボ以外の4人を作り直す、に決定。

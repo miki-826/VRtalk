@@ -1,13 +1,12 @@
 using System.Linq;
 using NUnit.Framework;
-using UniVRM10;
 using UnityEngine;
 
 namespace QuestAI.Tests
 {
     public class PixelCharacterTests
     {
-        // しろ・こはく・もも・むぎ are separate CC0 VRoid models driven through their VRM expressions, eye bones and spring bones.
+        // しろ・こはく・もも・むぎ are generated from scratch (OriginalCharacterBuilder): blend-shape faces, eye bones and spring hair.
         [Test] public void ActiveModelsKeepRigFaceAndSkinning()
         {
             var profiles=new[]{"calm","bright","bunny","cat"}.Select(id=>Resources.Load<CharacterProfile>("Profiles/"+id)).ToArray();
@@ -19,11 +18,9 @@ namespace QuestAI.Tests
                 var rig=prefab.GetComponent<CharacterRigBinding>();Assert.NotNull(rig.head,profile.id);Assert.NotNull(rig.chest);Assert.NotNull(rig.leftArm);Assert.NotNull(rig.rightArm);Assert.NotNull(rig.hips);
                 Assert.True(rig.animator.isHuman,profile.id);Assert.NotNull(rig.animator.GetBoneTransform(HumanBodyBones.LeftEye),profile.id+" eye bones for look-at");
                 var clips=prefab.GetComponent<ClipAnimator>();Assert.NotNull(clips.idle);Assert.NotNull(clips.walk);Assert.That(clips.gestures.Length,Is.GreaterThan(50));
-                var face=prefab.GetComponent<VrmFaceDriver>();Assert.NotNull(face,profile.id);Assert.NotNull(face.vrm);Assert.NotNull(face.vrm.Vrm,profile.id+" VRM object");
-                var expression=face.vrm.Vrm.Expression;
-                foreach(var clip in new[]{expression.Happy,expression.Sad,expression.Relaxed,expression.Surprised,expression.Aa,expression.Ih,expression.Ou,expression.Ee,expression.Oh,expression.Blink})
-                    Assert.That(clip.MorphTargetBindings.Length,Is.GreaterThan(0),profile.id+" "+clip.name);
-                Assert.That(face.vrm.SpringBone.Springs.Count,Is.GreaterThan(0),profile.id+" hair and clothes sway");
+                var face=prefab.GetComponent<AnimeFaceDriver>();Assert.NotNull(face,profile.id);Assert.NotNull(face.face);Assert.AreSame(rig.animator.GetBoneTransform(HumanBodyBones.LeftEye),face.leftEye);
+                foreach(var shape in AnimeFaceDriver.Shapes){int index=face.face.sharedMesh.GetBlendShapeIndex(shape);Assert.That(index,Is.GreaterThanOrEqualTo(0),profile.id+" "+shape);var deltas=new Vector3[face.face.sharedMesh.vertexCount];face.face.sharedMesh.GetBlendShapeFrameVertices(index,0,deltas,null,null);Assert.That(deltas.Any(d=>d.sqrMagnitude>0),profile.id+" "+shape+" moves the face");}
+                var hair=prefab.GetComponent<HairSpring>();Assert.That(hair.chains.Length,Is.GreaterThan(0),profile.id+" hair sways");Assert.That(hair.chains.All(c=>c.joints.Length>=3&&c.joints.All(j=>j)),Is.True);
                 foreach(var renderer in prefab.GetComponentsInChildren<SkinnedMeshRenderer>())
                 {
                     var mesh=renderer.sharedMesh;Assert.That(mesh.boneWeights.Length,Is.EqualTo(mesh.vertexCount));

@@ -2,13 +2,13 @@
 
 ## v1.2.0（2026-10-31）
 
-- EditMode **83/83成功**、PlayMode **26/26成功**（VRMキャラクター4体のリグ・表情・スプリングボーン・スキン、Quest操作のコンパイルを含む）。
+- EditMode **83/83成功**、PlayMode **26/26成功**（コード生成した自作キャラクター4体のHumanoidリグ・表情BlendShape・髪のスプリング・スキン、Quest操作のコンパイルを含む。2026-10-31 再実行）。
 - Windowsビルドと `--desktop-smoke` 成功: `artifacts/desktop-smoke-v1.2.0.log`。リビングでしろの表示を確認。
 - Quest用APKビルド・v2署名検証成功。`com.vibecodingclub.questai`、versionName **1.2.0**、versionCode **3**、ARM64、`oculus.software.overlay_keyboard` 宣言あり。
 - 配布パッケージ: `artifacts/releases/v1.2.0/`（`tools/package-release.ps1 -Version 1.2.0`）。ZIPの整合性を確認。
 - Windows ZIP: **245,995,544 bytes**、SHA256 `e35407418b60908c8ffacd71bad3ee006c1d3f05e3f51866a0576a812264de26`。
 - Quest APK: **191,658,747 bytes**、SHA256 `c8b8b6798314b073f6adf7eefaddecad05ae26836e5cca5fae4983e5832815ed`。
-- Quest実機での操作・システムキーボード・描画負荷（VRM4体・MToon）は未検証。
+- Quest実機での操作・システムキーボード・描画負荷（自作キャラ・MToon、1体あたり約1.8〜2万三角形）は未検証。
 
 ## v1.1.0 最終版（2026-10-25）
 
