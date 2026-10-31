@@ -13,7 +13,7 @@
 
 Kenney原文はThirdParty/Kenney内のLicenseファイル、Noto原文はThirdParty/Noto/LICENSE.txtに同梱しています。Poly Havenの[ライセンス](https://polyhaven.com/license)はCC0で、同梱画像からUnityマテリアルを作成しています。無料素材を使用した壁・床・梁・暖炉・窓などの部屋構成とシーン生成コードはこのプロジェクトで制作しています。
 
-しろ・こはく・もも・むぎのモデル（骨格・体・顔・髪・服・耳・しっぽ・テクスチャ）は外部モデルを使わず、`QuestAI/Assets/Editor/OriginalCharacterBuilder.cs` がコードで一から生成しています。
+しろ（いぬ）・こはく（ロボ）・もも（うさぎ）・むぎ（ねこ）のミニキャラ（骨格・Humanoidアバター・体・顔・耳・しっぽ・小物）は外部モデルを使わず、`QuestAI/Assets/Editor/MascotCharacterBuilder.cs` がコードで一から生成しています。シェーダーはUniVRMのMToon10、アニメーションはWhiteChibiと共有のCC0ライブラリです。
 
 白いちびキャラは利用者提供の `model/character/chibi` が原本です。その複製にURPマテリアル・表情BlendShape・ボーン対応を追加しました。提供モデルの権利条件は原本に従います。
 

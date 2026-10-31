@@ -40,4 +40,4 @@ Meta XR SDK Core/Interactionは205.0.0、Audioは85.0.0。Unity/OpenXR/URP/Meta/
 
 ## 自作キャラクター
 
-しろ・こはく・もも・むぎのモデル（骨格・Humanoidアバター・体・顔・髪・服・耳・しっぽ・テクスチャ）は外部モデルを使わず、`QuestAI/Assets/Editor/OriginalCharacterBuilder.cs` がコードで一から生成しています（2026-10-31にVRoidサンプルモデルから置き換え）。シェーダーはUniVRMのMToon10、アニメーションはWhiteChibiと共有のCC0ライブラリです。
+しろ（いぬ）・こはく（ロボ）・もも（うさぎ）・むぎ（ねこ）のミニキャラ（骨格・Humanoidアバター・体・顔・耳・しっぽ・小物）は外部モデルを使わず、`QuestAI/Assets/Editor/MascotCharacterBuilder.cs` がコードで一から生成しています。シェーダーはUniVRMのMToon10、アニメーションはWhiteChibiと共有のCC0ライブラリです。

@@ -6,7 +6,7 @@ namespace QuestAI.Tests
 {
     public class PixelCharacterTests
     {
-        // しろ・こはく・もも・むぎ are generated from scratch (OriginalCharacterBuilder): blend-shape faces, eye bones and spring hair.
+        // しろ（いぬ）・こはく（ロボ）・もも（うさぎ）・むぎ（ねこ） are chibi mascots generated from scratch (MascotCharacterBuilder).
         [Test] public void ActiveModelsKeepRigFaceAndSkinning()
         {
             var profiles=new[]{"calm","bright","bunny","cat"}.Select(id=>Resources.Load<CharacterProfile>("Profiles/"+id)).ToArray();
@@ -18,18 +18,17 @@ namespace QuestAI.Tests
                 var rig=prefab.GetComponent<CharacterRigBinding>();Assert.NotNull(rig.head,profile.id);Assert.NotNull(rig.chest);Assert.NotNull(rig.leftArm);Assert.NotNull(rig.rightArm);Assert.NotNull(rig.hips);
                 Assert.True(rig.animator.isHuman,profile.id);Assert.NotNull(rig.animator.GetBoneTransform(HumanBodyBones.LeftEye),profile.id+" eye bones for look-at");
                 var clips=prefab.GetComponent<ClipAnimator>();Assert.NotNull(clips.idle);Assert.NotNull(clips.walk);Assert.That(clips.gestures.Length,Is.GreaterThan(50));
-                var face=prefab.GetComponent<AnimeFaceDriver>();Assert.NotNull(face,profile.id);Assert.NotNull(face.face);Assert.AreSame(rig.animator.GetBoneTransform(HumanBodyBones.LeftEye),face.leftEye);
-                foreach(var shape in AnimeFaceDriver.Shapes){int index=face.face.sharedMesh.GetBlendShapeIndex(shape);Assert.That(index,Is.GreaterThanOrEqualTo(0),profile.id+" "+shape);var deltas=new Vector3[face.face.sharedMesh.vertexCount];face.face.sharedMesh.GetBlendShapeFrameVertices(index,0,deltas,null,null);Assert.That(deltas.Any(d=>d.sqrMagnitude>0),profile.id+" "+shape+" moves the face");}
-                var hair=prefab.GetComponent<HairSpring>();Assert.That(hair.chains.Length,Is.GreaterThan(0),profile.id+" hair sways");Assert.That(hair.chains.All(c=>c.joints.Length>=3&&c.joints.All(j=>j)),Is.True);
+                var face=prefab.GetComponent<MascotFaceDriver>();Assert.NotNull(face,profile.id);Assert.NotNull(face.face);Assert.AreSame(rig.animator.GetBoneTransform(HumanBodyBones.LeftEye),face.leftEye);
+                foreach(var shape in MascotFaceDriver.Shapes){int index=face.face.sharedMesh.GetBlendShapeIndex(shape);Assert.That(index,Is.GreaterThanOrEqualTo(0),profile.id+" "+shape);var deltas=new Vector3[face.face.sharedMesh.vertexCount];face.face.sharedMesh.GetBlendShapeFrameVertices(index,0,deltas,null,null);Assert.That(deltas.Any(d=>d.sqrMagnitude>0),profile.id+" "+shape+" moves the face");}
                 foreach(var renderer in prefab.GetComponentsInChildren<SkinnedMeshRenderer>())
                 {
                     var mesh=renderer.sharedMesh;Assert.That(mesh.boneWeights.Length,Is.EqualTo(mesh.vertexCount));
                     Assert.That(mesh.vertices.All(v=>!float.IsNaN(v.x)&&!float.IsNaN(v.y)&&!float.IsNaN(v.z)),Is.True);
                 }
                 float eyes=rig.animator.GetBoneTransform(HumanBodyBones.LeftEye).position.y-prefab.transform.position.y;
-                Assert.That(eyes,Is.InRange(1.2f,1.5f),profile.id+" companion-sized");
+                Assert.That(eyes,Is.InRange(.6f,1f),profile.id+" chibi-sized");
             }
-            foreach(var id in new[]{"bunny","cat"})
+            foreach(var id in new[]{"calm","bunny","cat"})
             {
                 var secondary=Resources.Load<CharacterProfile>("Profiles/"+id).prefab.GetComponent<CompanionSecondaryMotion>();
                 Assert.NotNull(secondary.leftEar);Assert.NotNull(secondary.rightEar);Assert.NotNull(secondary.tail);
