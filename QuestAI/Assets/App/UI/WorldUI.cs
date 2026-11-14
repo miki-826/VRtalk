@@ -171,7 +171,7 @@ namespace QuestAI
 #if UNITY_ANDROID && !UNITY_EDITOR
             Note("USBの場合: QuestをPCにつなぎ、Quest内の Android/data/"+Application.identifier+"/files/Models にコピーします。",70);
 #endif
-            Note("同じ名前の .txt を置くと、1行目が名前、2行目以降が性格になります（例: neko.vrm と neko.txt）。",70);
+            Note("同じ名前の .txt で名前・性格・声を設定できます。1行目は名前、次に「声: gleam」または「声: marin」、残りは性格を書きます。省略時は名前と性格から声を選びます。",100);
             float w=SystemFolder?280:434,gap=SystemFolder?24:20;
             ButtonAt("一覧を更新",0,cursor,w,70,()=>{int count=app.RefreshCustomModels();MyModels();ShowStatus(count>0?"マイモデル "+count+" 体を読み込みました。キャラクター一覧から選べます。":"VRMファイルが見つかりません。フォルダを確認してください。");},true);
             ButtonAt("URLから追加  ›",w+gap,cursor,w,70,()=>{returnPage=MyModels;Keyboard(".vrm のURL","",DownloadModel,false);});
@@ -220,11 +220,26 @@ namespace QuestAI
                     Note("Questの操作（カッコ内はPCのキー）\n移動: 左スティック（WASD）／ 向き: 右スティックを左右\nテレポート: 右スティックを前に倒して離す（Tを押して離す）\n指さし: 右グリップ（F）。床を指すとキャラクターがそこへ歩きます\n手を振る: Yボタン（H）／ しゃがむ・立つ: 左スティック押し込み（C）",230);
                     Button("マイク・再生を確認（4秒）",()=>{if(!microphoneCheck)microphoneCheck=gameObject.AddComponent<MicrophoneCheck>();microphoneCheck.Begin(app.Settings.voiceVolume,ShowStatus);});Note("録音してその場で再生します。外部送信・ファイル保存は行いません。",62);break;
                 case 2:
-                    EditButton("Live音声（空欄でキャラ既定）",app.Settings.voiceOverride,v=>app.Settings.voiceOverride=v);
-                    Button("モデルに合う声へ戻す",()=>{app.Settings.voiceOverride="";app.SaveSettings();SettingsPage(page);});
+                    var profile=app.characters.FirstOrDefault(p=>p.id==app.Settings.characterId);
+                    if(profile!=null)
+                    {
+                        string selected=app.Settings.VoiceFor(profile);
+                        Note(profile.displayName+"の声: "+selected,56);
+                        string[] voices={"","marin","gleam"};
+                        string[] labels={"キャラ既定","marin","gleam"};
+                        for(int i=0;i<voices.Length;i++)
+                        {
+                            string voice=voices[i];
+                            bool active=app.Settings.characterVoices!=null&&app.Settings.characterVoices.TryGetValue(profile.id,out var chosen)
+                                ? chosen==voice : (voice.Length==0&&string.IsNullOrEmpty(app.Settings.voiceOverride));
+                            ButtonAt((active?"● ":"")+labels[i],i*300,cursor,288,64,()=>{SetCharacterVoice(profile,voice);SettingsPage(page);},active);
+                        }
+                        cursor+=80;
+                        Button("音声名を入力  ›",()=>Keyboard("Live音声名",selected,v=>SetCharacterVoice(profile,v),false));
+                    }
                     Button("音量: "+Mathf.RoundToInt(app.Settings.voiceVolume*100)+"%",()=>{app.Settings.voiceVolume=app.Settings.voiceVolume>=.99f?0:Mathf.Min(1,app.Settings.voiceVolume+.1f);app.SaveSettings();SettingsPage(page);});
                     Button("ロボット声: "+new[]{"ロボのみ","全員","OFF"}[Mathf.Clamp(app.Settings.robotVoice,0,2)],()=>{app.Settings.robotVoice=(Mathf.Clamp(app.Settings.robotVoice,0,2)+1)%3;app.SaveSettings();SettingsPage(page);});
-                    Note("既定の声: marin / gleam\n声の変更は次回接続時、ロボット声はすぐ反映します。",95);break;
+                    Note("声の種類はキャラクターごとに保存します。変更は次回接続時、ロボット声の加工はすぐに反映します。",90);break;
                 case 3:Button("視線の追従: "+Mathf.RoundToInt(app.Settings.lookStrength*100)+"%",()=>{app.Settings.lookStrength=app.Settings.lookStrength>=1?0:app.Settings.lookStrength+.25f;app.SaveSettings();SettingsPage(page);});Note("HMDの方向で注視を判定します。瞬き・呼吸・口パクは端末内で動きます。",70);
                     Button("指示どおりに動く: "+(app.Settings.motionPlanning?"ON":"OFF"),()=>{app.Settings.motionPlanning=!app.Settings.motionPlanning;app.SaveSettings();SettingsPage(page);});
                     Button("視覚（見えた物に反応）: "+(app.Settings.vision?"ON":"OFF"),()=>{app.Settings.vision=!app.Settings.vision;app.SaveSettings();SettingsPage(page);});
@@ -250,6 +265,12 @@ namespace QuestAI
                     Button("全ローカルデータを削除",()=>Confirm("会話・記憶・設定・APIキーを削除します。",app.DeleteAllData,MainMenu));break;
             }
             Back(SettingsMenu);
+        }
+        void SetCharacterVoice(CharacterProfile profile,string voice)
+        {
+            if(app.Settings.characterVoices==null)app.Settings.characterVoices=new System.Collections.Generic.Dictionary<string,string>();
+            app.Settings.characterVoices[profile.id]=voice;
+            app.SaveSettings();
         }
         void EditButton(string label,string value,Action<string> save,bool secret=false)=>Button(label+"  ›",()=>Keyboard(label,value,save,secret));
         void Keyboard(string label,string value,Action<string> save,bool secret)

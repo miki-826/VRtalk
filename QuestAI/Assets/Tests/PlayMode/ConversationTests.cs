@@ -168,8 +168,8 @@ namespace QuestAI.Tests
         }
         [UnityTest] public IEnumerator RobotVoiceFollowsTheSetting()
         {
-            var player=brain.GetComponent<PcmStreamPlayer>();yield return null;Assert.False(player.Robot,"calm keeps its own voice by default");
-            brain.settings.robotVoice=1;yield return null;Assert.True(player.Robot);brain.settings.robotVoice=2;yield return null;Assert.False(player.Robot);
+            var player=brain.GetComponent<PcmStreamPlayer>();yield return null;Assert.True(player.Robot,"every character has a robot voice by default");
+            brain.settings.robotVoice=0;yield return null;Assert.False(player.Robot);brain.settings.robotVoice=2;yield return null;Assert.False(player.Robot);
         }
         [UnityTest] public IEnumerator TypedTextConnectsSendsAndIsSavedBeforeReply()
         {

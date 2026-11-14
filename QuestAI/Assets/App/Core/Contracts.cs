@@ -70,8 +70,16 @@ namespace QuestAI
         public bool memoryEnabled = true, behaviorEnabled = true, autonomousMovement = true;
         // Instructions become body motion plans (OpenAI); sight reacts to what is in view; images of the view may be described by OpenAI.
         public bool motionPlanning = true, vision = true, visionImages = true;
+        // An empty value restores the profile voice, even for saves with a legacy global override.
+        public Dictionary<string,string> characterVoices = new Dictionary<string,string>();
+        public string VoiceFor(CharacterProfile profile)
+        {
+            if(characterVoices!=null&&characterVoices.TryGetValue(profile.id,out var selected))
+                return string.IsNullOrWhiteSpace(selected)?profile.voice:selected;
+            return string.IsNullOrWhiteSpace(voiceOverride)?profile.voice:voiceOverride;
+        }
         // Robotic voice effect: 0 = robot character only, 1 = every character, 2 = off.
-        public int robotVoice;
+        public int robotVoice = 1;
     }
     [Serializable] public class MessageRecord
     {

@@ -1,4 +1,6 @@
 using System.Linq;
+using System.IO;
+using Newtonsoft.Json;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -6,6 +8,46 @@ namespace QuestAI.Tests
 {
     public class MascotModelTests
     {
+        [Test] public void CharacterVoicesPersistIndependentlyWithRobotEffectEnabled()
+        {
+            var calm=Resources.Load<CharacterProfile>("Profiles/calm");
+            var bright=Resources.Load<CharacterProfile>("Profiles/bright");
+            var settings=new AppSettings();
+            Assert.That(settings.robotVoice,Is.EqualTo(1));
+            Assert.That(settings.VoiceFor(calm),Is.EqualTo(calm.voice));
+            settings.characterVoices[calm.id]="gleam";
+            var restored=JsonConvert.DeserializeObject<AppSettings>(JsonConvert.SerializeObject(settings));
+            Assert.That(restored.VoiceFor(calm),Is.EqualTo("gleam"));
+            Assert.That(restored.VoiceFor(bright),Is.EqualTo(bright.voice));
+            restored.voiceOverride="marin";
+            restored.characterVoices[bright.id]="";
+            Assert.That(restored.VoiceFor(bright),Is.EqualTo(bright.voice));
+        }
+        [Test] public void UploadedAvatarVoiceUsesDescriptionUnlessTextOverridesIt()
+        {
+            string path=Path.Combine(Path.GetTempPath(),"元気な子_"+System.Guid.NewGuid().ToString("N")+".vrm");
+            string notes=Path.ChangeExtension(path,".txt");
+            CharacterProfile suggested=null, described=null, explicitVoice=null;
+            try
+            {
+                suggested=CustomModels.Profile(path);
+                Assert.That(suggested.voice,Is.EqualTo("gleam"));
+                File.WriteAllText(notes,"静かな子\n落ち着いて話す。");
+                described=CustomModels.Profile(path);
+                Assert.That(described.voice,Is.EqualTo("marin"));
+                File.WriteAllText(notes,"静かな子\n声: gleam\n落ち着いて話す。");
+                explicitVoice=CustomModels.Profile(path);
+                Assert.That(explicitVoice.voice,Is.EqualTo("gleam"));
+                Assert.That(explicitVoice.personality,Is.EqualTo("落ち着いて話す。"));
+            }
+            finally
+            {
+                if(suggested)Object.DestroyImmediate(suggested);
+                if(described)Object.DestroyImmediate(described);
+                if(explicitVoice)Object.DestroyImmediate(explicitVoice);
+                if(File.Exists(notes))File.Delete(notes);
+            }
+        }
         // しろ（いぬ）・こはく（ロボ）・もも（うさぎ）・むぎ（ねこ） are chibi mascots generated from scratch (MascotCharacterBuilder).
         [Test] public void ActiveModelsKeepRigFaceAndSkinning()
         {

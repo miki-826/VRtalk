@@ -21,14 +21,15 @@ namespace QuestAI.Tests
         {
             Directory.CreateDirectory(CustomModels.Folder);
             model = Path.Combine(CustomModels.Folder, "TestDog.vrm"); notes = Path.ChangeExtension(model, ".txt");
-            File.Copy(Fixture, model, true); File.WriteAllText(notes, "テストわんこ\nのんびりした犬。");
+            File.Copy(Fixture, model, true); File.WriteAllText(notes, "テストわんこ\n声: gleam\nのんびりした犬。");
             AppRoot.EditorRepositoryFactory = () => new LocalRepository();
             yield return SceneManager.LoadSceneAsync("Bootstrap");
             float deadline = Time.realtimeSinceStartup + 30;
             while ((!AppRoot.Instance || !AppRoot.Instance.UI || AppRoot.Instance.IsChanging) && Time.realtimeSinceStartup < deadline) yield return null;
             var app = AppRoot.Instance; app.RefreshCustomModels();
             var profile = app.characters.FirstOrDefault(c => c.id == CustomModels.Prefix + "TestDog");
-            Assert.NotNull(profile, "The VRM is listed"); Assert.That(profile.displayName, Does.StartWith("テストわんこ")); Assert.That(profile.personality, Is.EqualTo("のんびりした犬。"));
+            Assert.NotNull(profile, "The VRM is listed"); Assert.That(profile.displayName, Does.StartWith("テストわんこ")); Assert.That(profile.personality, Is.EqualTo("のんびりした犬。")); Assert.That(profile.voice, Is.EqualTo("gleam"));
+            Assert.That(app.Settings.VoiceFor(profile), Is.EqualTo("gleam"));
 
             app.Settings.characterId = profile.id; app.Settings.environmentId = "LivingRoom"; app.Settings.autonomousMovement = false;
             app.StartSession(false); deadline = Time.realtimeSinceStartup + 30;

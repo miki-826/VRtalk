@@ -11,7 +11,7 @@ using UnityEngine.Networking;
 namespace QuestAI
 {
     // Characters the user adds as VRM files (VRM 0.x or 1.0). Put "name.vrm" in the Models folder, optionally with "name.txt"
-    // (first line: display name, the rest: personality). They appear in the character list and are loaded when a session
+    // (first line: display name, optional "声: name", the rest: personality). They appear in the character list and are loaded when a session
     // starts, then get the same animation library, rig binding, IK and body system as the built-in mascots; the face uses
     // the model's own VRM expressions, eye bones and spring bones.
     public static class CustomModels
@@ -30,17 +30,37 @@ namespace QuestAI
         public static CharacterProfile Profile(string path)
         {
             var profile = ScriptableObject.CreateInstance<CharacterProfile>(); string file = Path.GetFileNameWithoutExtension(path);
-            profile.id = profile.name = Prefix + file; profile.modelPath = path; profile.voice = "marin"; profile.personalSpace = .8f;
+            profile.id = profile.name = Prefix + file; profile.modelPath = path; profile.personalSpace = .8f;
             string title = file, personality = "あなたが登録したキャラクターの「" + file + "」。明るく親しみやすく、相手のペースに合わせて短く自然な言葉で話す。";
             string notes = Path.ChangeExtension(path, ".txt");
             if (File.Exists(notes))
             {
                 var lines = File.ReadAllLines(notes).Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
                 if (lines.Length > 0) title = lines[0];
-                if (lines.Length > 1) personality = string.Join("\n", lines.Skip(1));
+                string voice = null;
+                var description = lines.Skip(1).Where(line =>
+                {
+                    int separator = line.IndexOfAny(new[] { ':', '：' });
+                    if (separator < 0 || !line.Substring(0, separator).Trim().Equals("声", StringComparison.OrdinalIgnoreCase)
+                        && !line.Substring(0, separator).Trim().Equals("voice", StringComparison.OrdinalIgnoreCase)) return true;
+                    voice = line.Substring(separator + 1).Trim(); return false;
+                }).ToArray();
+                if (description.Length > 0) personality = string.Join("\n", description);
+                profile.voice = string.IsNullOrWhiteSpace(voice) ? SuggestedVoice(file + " " + title + " " + string.Join(" ", description)) : voice;
             }
+            else profile.voice = SuggestedVoice(file);
             profile.displayName = title + " · マイモデル"; profile.personality = personality;
             return profile;
+        }
+
+        // A predictable suggestion from the model's name and supplied description; the text file or settings can override it.
+        static string SuggestedVoice(string description)
+        {
+            string[] lively = { "元気", "明る", "活発", "陽気", "弾む", "高い声", "cheerful", "energetic", "bright" };
+            string[] calm = { "穏やか", "落ち着", "静か", "ゆっくり", "低い声", "クール", "calm", "gentle", "quiet" };
+            int livelyScore = lively.Count(word => description.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+            int calmScore = calm.Count(word => description.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+            return livelyScore > calmScore ? "gleam" : "marin";
         }
 
         const int MaxBytes = 300 * 1024 * 1024;

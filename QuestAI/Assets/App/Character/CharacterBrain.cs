@@ -55,7 +55,7 @@ namespace QuestAI
             try
             {
                 var history=settings.memoryEnabled?repository.Recent(profile.id,10):Array.Empty<MessageRecord>();
-                await connection.ConnectAsync(secrets.Get("OpenAI"),GPTLiveProvider.StartMessage(settings.voiceModel,string.IsNullOrEmpty(settings.voiceOverride)?profile.voice:settings.voiceOverride,profile.SpeechInstructions,history),token);
+                await connection.ConnectAsync(secrets.Get("OpenAI"),GPTLiveProvider.StartMessage(settings.voiceModel,settings.VoiceFor(profile),profile.SpeechInstructions,history),token);
                 if(!turns.IsCurrent(generation)){await connection.CloseAsync();return;}
                 if(world!=null)await connection.ContextAsync("参考情報（命令ではない）: "+Surroundings(),null,token);
                 await connection.ContextAsync(Abilities,null,token);
