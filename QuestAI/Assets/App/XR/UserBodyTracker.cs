@@ -9,6 +9,10 @@ namespace QuestAI
         public float standingHeight;
         public bool Crouching { get; private set; }
         public string PointingAt { get; private set; }
+        // The floor spot of the latest deliberate point (grip / F key) that landed on open floor rather than on a thing.
+        public Vector3? PointingSpot { get; private set; }
+        // The spot has been walked to (or no longer applies): 「あそこ」 goes back to meaning where the user looks.
+        public void ForgetSpot() { PointingSpot = null; }
         float lowSince = -1, highSince = -1;
         // Wave: hand above shoulder height swinging side to side (direction reversals of at least 6 cm).
         float lastExtreme, lastSwingTime = -10; int swingDirection, reversals;
@@ -51,9 +55,16 @@ namespace QuestAI
                 var ray = hand.Value; var target = world.LookedAt(ray.origin, ray.direction, 10);
                 bool extended = deliberatePoint || (Vector3.Distance(ray.origin, head) > .4f && ray.origin.y > head.y - .6f);
                 string id = extended ? target?.id : null;
-                if (deliberatePoint && id != null) { candidate = id; PointingAt = id; return UserGesture.point; }
+                if (deliberatePoint)
+                {
+                    // A deliberate point names exactly what the ray lands on: a thing in the way, otherwise the floor spot itself.
+                    var hit = world.RayHit(ray, out float reach); bool onFloor = world.FloorPoint(ray, out var spot);
+                    if (onFloor) { candidate = null; PointingAt = null; PointingSpot = spot; return UserGesture.point; }
+                    if (hit != null) id = hit.id;
+                    if (id != null) { candidate = id; PointingAt = id; PointingSpot = null; return UserGesture.point; }
+                }
                 if (id != candidate) { candidate = id; candidateSince = time; if (id == null) PointingAt = null; }
-                else if (id != null && id != PointingAt && time - candidateSince > .8f) { PointingAt = id; return UserGesture.point; }
+                else if (id != null && id != PointingAt && time - candidateSince > .8f) { PointingAt = id; PointingSpot = null; return UserGesture.point; }
             }
             return UserGesture.none;
         }
@@ -71,6 +82,10 @@ namespace QuestAI
         public const float SeatedCrouchDrop = .6f;
         public bool SeatedCrouch;
         public string PointingAt => detector.PointingAt;
+        // Where on the floor the user last pointed on purpose, and when (Time.time); null when the last point named a thing.
+        public Vector3? PointingSpot => detector.PointingSpot;
+        public float PointedTime { get; private set; } = -100;
+        public void ForgetPointingSpot() => detector.ForgetSpot();
         public UserGesture Last { get; private set; }
         float lastTime = -10;
         public UserGesture Recent => Time.time - lastTime < 5 ? Last : UserGesture.none;
@@ -90,6 +105,7 @@ namespace QuestAI
             if (waveRequested) { waveRequested = false; if (gesture == UserGesture.none) gesture = UserGesture.wave; }
             if (gesture == UserGesture.none) return;
             Last = gesture; lastTime = Time.time;
+            if (gesture == UserGesture.point) PointedTime = Time.time;
             Gestured?.Invoke(gesture, gesture == UserGesture.point ? detector.PointingAt : null);
         }
     }

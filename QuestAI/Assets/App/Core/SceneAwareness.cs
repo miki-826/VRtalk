@@ -122,6 +122,37 @@ namespace QuestAI
             }
             return best;
         }
+        // The first thing a pointer ray lands on: furniture or a toy standing on the floor.
+        public SceneObject RayHit(Ray ray, out float distance)
+        {
+            SceneObject best = null; distance = float.MaxValue;
+            foreach (var o in objects)
+            {
+                // Only what stands on the floor can be in the way: not rugs, windows and curtains, wall shelves or hanging lamps.
+                if (!o.obstacle && (Walkable.Contains(o.label) || o.bounds.size.y <= .12f || o.bounds.min.y >= floor.max.y + .5f)) continue;
+                // Someone standing inside a thing's bounding box (between two chairs that count as one) is not blocked by it.
+                if (o.bounds.Contains(ray.origin)) continue;
+                if (o.bounds.IntersectRay(ray, out float d) && d > 0 && d < distance) { distance = d; best = o; }
+            }
+            return best;
+        }
+        // Where a pointer or gaze ray meets the floor of this room, unless something stands in the way.
+        public bool FloorPoint(Ray ray, out Vector3 point, float maxDistance = 12)
+        {
+            point = default;
+            if (!new Plane(Vector3.up, new Vector3(0, floor.max.y, 0)).Raycast(ray, out float d) || d <= 0 || d > maxDistance) return false;
+            point = ray.GetPoint(d);
+            if (point.x < floor.min.x || point.x > floor.max.x || point.z < floor.min.z || point.z > floor.max.z) return false;
+            return RayHit(ray, out float blocked) == null || blocked > d;
+        }
+        // Whether the user may stand here: on the floor away from the walls and not inside furniture.
+        public bool CanStand(Vector3 point, float wallMargin = .5f)
+        {
+            if (point.x < floor.min.x + wallMargin || point.x > floor.max.x - wallMargin || point.z < floor.min.z + wallMargin || point.z > floor.max.z - wallMargin) return false;
+            foreach (var o in objects)
+                if (o.obstacle && point.x > o.bounds.min.x && point.x < o.bounds.max.x && point.z > o.bounds.min.z && point.z < o.bounds.max.z) return false;
+            return true;
+        }
         public static string Direction(Vector3 from, Vector3 forward, Vector3 to)
         {
             Vector3 delta = to - from; delta.y = 0; forward.y = 0;

@@ -2,6 +2,8 @@
 
 ## 話した動作の再現
 
+2026-11-14 追加: 場所を言葉で伝えられます（「ソファの後ろに行って」「私の右に来て」「部屋の真ん中に行って」「あそこに行って」）。`MotionStep.place`（`MotionPlace`）と `App/Core/PlaceResolver.cs` が床の位置へ変換します。詳細は README の「言葉で動かす」と AWARENESS.md の「言葉で説明した場所」。
+
 端末内の日本語パーサーが、読点のない連続した指示も動作に分けて実行します。理解できない指示が含まれると、既存のAI動作プランナーへ渡します。APIキーなしでも、端末内で理解できた指示は実行できます。
 
 試せる例:
@@ -21,7 +23,7 @@
 
 左右はキャラクター自身の左右です。速さと感情は各節に適用します。身体の動作にも slow / normal / hurry を適用し、秒数を明示した場合はその時間を優先します。`MotionStep.duration` は動作時間、`amount` は従来どおり回数・距離・角度です。キーフレーム動作の指定時間は、通常姿勢へ戻る補間も含みます。
 
-セッション画面の「動きを試す」では、接続・APIキー・マイクなしで8つのボタンから動作を試せます。「もう一度」は直前に試した指示を繰り返し、「動きを止める」は実行中の歩行や姿勢保持を中断します。実行中の手順数と完了・失敗を日本語で表示します。
+セッション画面の「動きを試す」では、接続・APIキー・マイクなしで10個のボタン（場所への移動4つ・動作6つ）と「言葉で指示する」（自由な文の入力）から動作を試せます。「動きを止める」は実行中の歩行や姿勢保持を中断します。実行中の手順数と完了・失敗を日本語で表示します。
 
 ![APIキーなしで使える動作確認画面](images/motion-lab.png)
 
@@ -48,7 +50,7 @@ WhiteChibiへのHumanoidアニメーション適用で身体が後ろを向い�
 
 WhiteChibiの骨格・表情メッシュ・Humanoidアニメーションを共有し、専用のマテリアルと3Dパーツを追加しています。既存の会話、口パク、表情、手のIK、歩行、物の持ち運びに対応します。耳としっぽは歩く速さ・回転・感情に応じてばね状に揺れます。声の指示・性格・記憶はプロフィールごとに分かれます。
 
-生成済みPrefabは `QuestAI/Assets/Generated/Companions/`、プロフィールは `QuestAI/Assets/Resources/Profiles/bunny.asset` と `cat.asset`。再生成は Unity の `Quest AI > Add bunny and cat companions`。確認画像付きのバッチ実行は `QuestAI.Editor.CuteCharacterBuilder.BuildAndReview` です。
+（2026-11-14: このWhiteChibi版のうさぎ・ねこ（`Generated/Companions`、`CuteCharacterBuilder`）は、v1.4.0でミニキャラ版（`Generated/Mascots`、`MascotCharacterBuilder`）に置き換わって未使用だったため削除しました。プロフィールは `QuestAI/Assets/Resources/Profiles/bunny.asset` と `cat.asset` のままです。）
 
 キャラクター選択画面は5人のボタンと選択中の性格説明を表示します。説明を選択中だけにすることで、追加したキャラクターと戻るボタンが重ならないようにしました。
 

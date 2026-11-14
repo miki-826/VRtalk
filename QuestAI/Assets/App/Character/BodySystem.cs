@@ -88,10 +88,6 @@ namespace QuestAI
         // Something held in both hands: its centre and half its width.
         public Vector3? holdCenter;public float holdWidth=.15f;
         Transform leftHand,rightHand;float leftReach,rightReach;Vector3 leftLast,rightLast;
-        public void Play(SpeechAudio data,float volume)
-        {
-            StopSpeech(); var clip=AudioClip.Create("Generated speech",data.samples.Length,1,data.sampleRate,false);clip.SetData(data.samples,0);voice.clip=clip;voice.volume=volume;voice.Play();
-        }
         public void StopSpeech() { if (!voice)return;voice.Stop();if(voice.clip){var clip=voice.clip;voice.clip=null;Destroy(clip);} }
         public bool IsSpeaking => voice && voice.isPlaying;
         void PoseBone(Transform bone,Vector3 euler)

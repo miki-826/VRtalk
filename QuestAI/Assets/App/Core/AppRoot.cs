@@ -123,13 +123,13 @@ namespace QuestAI
                 var body=avatar.GetComponent<BodySystem>();body.user=Head;
                 var locomotion=avatar.AddComponent<CharacterLocomotion>();locomotion.world=world;locomotion.user=Head;
                 Brain=avatar.AddComponent<CharacterBrain>();Brain.profile=profile;Brain.body=body;Brain.user=Head;Brain.environment=environment.displayName;Brain.world=world;Brain.locomotion=locomotion;Brain.tracker=Body;Body.world=world;Brain.settings=Settings;Brain.repository=Repository;Brain.secrets=Secrets;
-                var transport=new ApiTransport(Secrets);var openAI=new OpenAIProvider(transport,Settings);Brain.stt=openAI;Brain.llm=openAI;Brain.tts=openAI;Brain.behavior=JevStatus.Observe(new JevBehaviorProvider(transport,Settings));
+                Brain.TimeRequested=mode=>{Settings.timeMode=mode;SaveSettings();};
+                var transport=new ApiTransport(Secrets);var openAI=new OpenAIProvider(transport,Settings);Brain.llm=openAI;Brain.behavior=JevStatus.Observe(new JevBehaviorProvider(transport,Settings));
                 var structured=new OpenAIStructured(transport,Settings);openAI.Structured=structured;var planner=new OpenAIMotionPlanner(structured);Brain.planner=planner;Brain.vision=planner;
                 string session=save?.sessionId??Guid.NewGuid().ToString("N");
                 Brain.Initialize(save?.state??JsonConvert.DeserializeObject<CharacterState>(Repository.Load("state:"+profile.id)??"null"),session);
                 Repository.Save("character:"+profile.id,JsonConvert.SerializeObject(new{id=profile.id,name=profile.displayName}));Repository.Save("session:"+session,JsonConvert.SerializeObject(new{character=profile.id,environment=environment.id,started=DateTimeOffset.UtcNow.ToUnixTimeSeconds()}));
                 currentSession=session;Brain.StatusChanged+=UI.ShowStatus;Brain.CaptionChanged+=UI.SetCaptions;
-                var journey=CompanionJourney.Load(Repository,profile.id);journey.Visit(environment.id);journey.Save(Repository,profile.id);
                 ApplyTime();UI.Session();if(paused||!focused)Brain.Suspend();SaveSession();
             }
             catch(OperationCanceledException){}

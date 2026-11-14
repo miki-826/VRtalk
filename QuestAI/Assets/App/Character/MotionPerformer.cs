@@ -35,12 +35,15 @@ namespace QuestAI
             // A finished pickup keeps its prop across the next request; an explicit stop still releases it.
             Cancel(Busy || plan == null || plan.Empty || plan.steps.Any(s => s.action == MotionAction.stop)); Results.Clear();
             if (plan == null || plan.Empty) return;
-            if (plan.steps.All(s => s.action == MotionAction.stop)) { Tell("ユーザーに言われて動きを止めました。"); return; }
+            if (plan.steps.All(s => s.action == MotionAction.stop)) { Last = null; Tell("ユーザーに言われて動きを止めました。"); return; }
             Last = plan; Request = request; Busy = true; hadFailure = false; int v = ++version;
             if (Legs) { Legs.Frozen = true; frozen = true; }
             StartCoroutine(Execute(plan, v));
         }
-        public void Stop() { Cancel(true); Status?.Invoke("動きを止めました。"); }
+        // Stopping also forgets the plan, so an AI loop that was waiting to continue it ends instead of starting again.
+        public void Stop() { Cancel(true); Last = null; Status?.Invoke("動きを止めました。"); }
+        // Changes whenever a plan starts or is stopped: a plan that was still being worked out for an older state is dropped.
+        public int Version => version;
         void Cancel(bool releaseHeld)
         {
             version++; StopAllCoroutines(); Current = null; StepIndex = -1;
@@ -49,6 +52,7 @@ namespace QuestAI
             if (Legs) { Legs.Stop(); if (frozen) Legs.Frozen = false; }
             frozen = false;
             if (Clips) Clips.StopAction();
+            if (brain) brain.ShowDestination(null);
             if (Body) { Body.ClearMotion(); Body.SetHeldArms(null); Body.lookPoint = null; Body.leftHandTarget = Body.rightHandTarget = null; if (Body.CurrentPose == BodySystem.Pose.crouch || Body.CurrentPose == BodySystem.Pose.point) Body.SetPose(BodySystem.Pose.stand, null); }
             if (Toys && releaseHeld) Toys.Settle();
         }
@@ -112,6 +116,7 @@ namespace QuestAI
             switch (step.action)
             {
                 case MotionAction.walk_to:
+                    if (step.place != MotionPlace.none) { yield return WalkToPlace(step, v); break; }
                     if (step.target == "user") { yield return ApproachUser(step.pace, v); break; }
                     if (!Point(step.target, out var at, out var item) || item == null) { Fail("行き先が見つかりません。"); break; }
                     var toy = Toys ? Toys.Find(step.target) : null;
@@ -211,6 +216,12 @@ namespace QuestAI
                         yield return Hold(1.6f, v); Body.rightHandTarget = null;
                         Tell((id == "user" ? "ユーザー" : id) + "に手で触れました。"); break;
                     }
+                case MotionAction.set_time:
+                    {
+                        int mode = Array.IndexOf(MotionPlans.TimeNames, step.target);
+                        if (mode < 0 || brain.TimeRequested == null) { Fail("ここでは時間帯を変えられません。"); break; }
+                        brain.TimeRequested((TimeMode)mode); Tell("部屋の時間帯を「" + step.target + "」に変えました。"); yield return Hold(.4f, v); break;
+                    }
                 case MotionAction.look_closely:
                     if (Point(step.target, out var detail, out _)) { Face(detail); Look(detail); yield return Hold(.6f, v); }
                     var looking = brain.LookClosely(Request);
@@ -236,6 +247,19 @@ namespace QuestAI
             if (!Legs.MoveTo(goal, place, face, ok => arrived = ok, pace)) { travelFailed = true; Fail(place + "へ行く道がありません。"); yield break; }
             while (arrived == null && v == version) yield return null;
             if (arrived == false && v == version) { travelFailed = true; Fail(place + "へ行けませんでした。"); }
+        }
+        // A place described in words (「ソファの後ろ」「あなたの右」「部屋の真ん中」「指さした場所」): walk to the spot and turn to the user.
+        IEnumerator WalkToPlace(MotionStep step, int v)
+        {
+            if (!PlaceResolver.Resolve(World, step.place, step.target, step.toward, step.amount, Self, User, brain.user.forward, brain.IndicatedSpot(), out var where))
+            { travelFailed = true; Fail(where.error); yield break; }
+            brain.ShowDestination(where.spot);
+            yield return Walk(where.spot, where.name, null, step.pace, v);
+            brain.ShowDestination(null);
+            if (v != version || travelFailed) yield break;
+            Face(User); yield return Hold(.35f, v);
+            if (step.place == MotionPlace.pointed) brain.ForgetPointedSpot();
+            Tell("頼まれた場所（" + where.name + "）に着きました。");
         }
         IEnumerator WalkToObject(SceneObject item, Pace pace, int v)
         {

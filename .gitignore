@@ -18,3 +18,9 @@ QuestAI/build/
 **/[Tt]emp/
 **/[Ll]ogs/
 **/UserSettings/
+
+# Android native build cache
+QuestAI/.utmp/
+# Scenes left behind by interrupted test runs
+QuestAI/Assets/InitTestScene*
+.omc/

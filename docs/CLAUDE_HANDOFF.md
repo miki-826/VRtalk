@@ -1,5 +1,16 @@
 # Claude Code 引き継ぎ
 
+## 2026-11-14: 言葉で説明した場所への移動・指さし・テレポート、不要機能の削除
+
+- ユーザー指示「ブラッシュアップして。指示した場所に移動できるように。いろいろ修正して、いらない機能はなくして」→ 途中で「言葉で説明した場所に移動するように。言葉で話した内容をAIが何でもやるように」。確認の結果: 移動は「キャラが歩く」と「自分のテレポート」の両方、削除は「未使用の旧コード・データ」と「ミニ遊び（クイズ等）」。おもちゃ遊びと設定8分類は残す。
+- 追加: `MotionPlace` / `MotionStep.place`、`App/Core/PlaceResolver.cs`、`LocalMotionParser.Described`（場所の言い回し）、`MotionAction.set_time`（「夜にして」）、`CharacterBrain.Instruct`（接続なしの文字指示、「動きを試す」→「言葉で指示する」）、床の指さし（`UserBodyTracker.PointingSpot` → `GoToPointedSpot`）、行き先の輪 `App/XR/FloorMarker.cs`、プレイヤーのテレポートと壁沿い歩行（`XRPointerInput`）。設計の詳細は AWARENESS.md の「言葉で説明した場所・床の指さし・テレポート」。
+- AIプランナー: スキーマに `place` を追加し、指示文を「頼まれたことは断らず、体でできる形で実行する」に強化。GPT-Liveの開始指示にも「動きを頼まれたら断らず引き受ける」を追加。プランナーが部屋にない物の前後左右を返した場合は `Validate` が場所指定を外し、歩行ステップが「行き先が見つかりません」で失敗する（ユーザーの横にすり替えない）。
+- 削除: しぐさクイズ・お題カード・交流スタンプ・手を振ってごあいさつ（`CompanionJourney`、WorldUIのActivities。会話画面のボタンは「おもちゃで遊ぶ」に直結）。ピクセル版（`VoxelCharacterBuilder`・`Generated/VoxelCharacter`）、WhiteChibi版うさぎ・ねこ（`CuteCharacterBuilder`・`Generated/Companions`）、使われていなかった旧STT→LLM→TTS経路（`ISTTProvider` / `ITTSProvider` / `ReplyAsync` / `SpeechAudio` / `sttModel` / `ttsModel` など）、テスト実行の残骸 `Assets/InitTestScene*`。`QuestAI/.utmp`（Androidビルドのキャッシュ）はGitの追跡から外して .gitignore へ。WhiteChibi本体（`Characters/WhiteChibi`・`Generated/WhiteChibi.prefab`）はミニキャラ生成とアニメーションライブラリが参照するので残した。`PixelCharacterTests` は内容がミニキャラの検査なので `MascotModelTests` に改名。
+- 修正: キャラクターの0.5m以内に入ると離れる方向にも歩けなかった／家具をすり抜けて歩けた（`CanUserStep`）。設定「話しかけ方」の説明がボタンと重なっていた。各ページの説明文が1行に収まらず切れていた。`llmModel` の設定名を「動作計画・記憶のモデル」に（動作計画・画像説明にも使うため）。
+- 役割分担: Claude＝設計・契約・実装・統合・検証。Codex＝EditModeテスト初版（`PlaceTests.cs`、`LocalMotionParserTests.cs` への追加）。Antigravity（gemini-4-argon-high、planモード）＝読み取り専用のセカンドオピニオンレビュー（15件、Claudeが1件ずつ検証して修正）。依頼文は `.omc/handoffs/`、結果は `.omc/research/`（どちらもGit管理外）。
+- 検証: EditMode **113/113**、PlayMode **32/32**（`artifacts/EditMode-brushup3.xml`・`PlayMode-brushup3.xml`）。Android向けプレイヤースクリプトのコンパイル（`PlayerBuildInterface.CompilePlayerScripts`）成功＝Quest専用の入力分岐もコンパイルを確認。**APK・Windowsビルドは作り直していない。版は1.6.0のまま。** Quest実機（スティック前倒しのテレポート、グリップの床指さし）、実APIでのAI動作計画（`place` を含むスキーマ）、音声経由の場所指示は未確認。
+- 注意: Unityのバッチ実行のたびに `Assets/StreamingAssets/RuntimeActionBindings.json`（Meta SDKが生成）が消えることがある。コミット前に `git checkout --` で戻す。`Sky.mat` 5つと `DevAgentSettings.asset` の差分は今回の作業前からあったもので、触っていない。
+
 ## 2026-10-31: ミニキャラの作り込み（目・腕・耳）
 
 - ユーザー指摘「移動すると目が隠れる」「腕や足の動き、目の形の切り替わりがおかしい」「耳などがしっかりくっついていない」。`Tests/PlayMode/MascotReviewTests.cs`（[Explicit]、名前指定で実行）で歩行・手振り・表情を正面／側面／背面から撮影して確認（`artifacts/previews/Review-*.png`）。

@@ -43,7 +43,6 @@ namespace QuestAI.Tests
         }
         sealed class Model : ILLMProvider,IBehaviorProvider
         {
-            public Task<string> ReplyAsync(DialogueContext c,CancellationToken t)=>Task.FromResult("unused");
             public Task<BehaviorDecision> DecideAsync(DialogueContext c,CancellationToken t)=>Task.FromResult(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.nod});
             public Task<IReadOnlyList<MemoryRecord>> ExtractAsync(MessageRecord s,CancellationToken t)=>Task.FromResult<IReadOnlyList<MemoryRecord>>(new[]{new MemoryRecord{characterId=s.characterId,sourceMessageId=s.id,content=s.text}});
         }

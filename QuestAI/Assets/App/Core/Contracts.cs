@@ -17,7 +17,7 @@ namespace QuestAI
     public enum ArrivalAction { none, sit, crouch_look, point }
     public enum WalkingReaction { @continue, stop, turn_to_user, change_destination }
     public enum UserGesture { none, wave, point, crouch, stand_up }
-    public enum ConversationPhase { Idle, Recording, Transcribing, Thinking, Synthesizing, Speaking, Paused }
+    public enum ConversationPhase { Idle, Recording, Thinking, Speaking, Paused }
     public enum TimeMode { Auto, Morning, Day, Evening, Night }
     public enum SubtitleMode { Off, Minimal, Always }
 
@@ -46,7 +46,7 @@ namespace QuestAI
     [Serializable] public class PerceptionSnapshot
     {
         public float distance, headAngle, headSpeed, silenceDuration;
-        public bool headLookingAtCharacter, speaking, handsTracked;
+        public bool headLookingAtCharacter, speaking;
         public string environment, time, trigger;
         // Character-relative room description and what the user is currently facing (SceneAwareness).
         public string surroundings, userLookingAt, nearbyObject;
@@ -62,7 +62,7 @@ namespace QuestAI
     [Serializable] public class AppSettings
     {
         public string voiceModel = "gpt-live-1";
-        public string llmModel = "gpt-4.1-mini", sttModel = "gpt-4o-mini-transcribe", ttsModel = "gpt-4o-mini-tts", behaviorModel = "jev-latest";
+        public string llmModel = "gpt-4.1-mini", behaviorModel = "jev-latest";
         public string characterId = "calm", environmentId = "LivingRoom", voiceOverride = "";
         public TimeMode timeMode = TimeMode.Auto;
         public SubtitleMode subtitles = SubtitleMode.Minimal;
@@ -90,31 +90,19 @@ namespace QuestAI
         public string characterId, environmentId, sessionId;
         public CharacterState state = new CharacterState();
     }
-    public class SpeechAudio
-    {
-        public float[] samples;
-        public int sampleRate = 24000;
-        public VisemeFrame[] visemes = Array.Empty<VisemeFrame>();
-    }
-    public struct VisemeFrame { public float time, weight; public string name; }
     public class DialogueContext
     {
         public string text, personality, characterName;
         public CharacterState character;
         public PerceptionSnapshot perception;
-        public BehaviorDecision behavior;
-        public IReadOnlyList<MessageRecord> history;
         public IReadOnlyList<MemoryRecord> memories;
         // Ids of scene objects the character may walk to or look at.
         public IReadOnlyList<string> places;
     }
-    public interface ISTTProvider { Task<string> TranscribeAsync(byte[] wav, CancellationToken token); }
     public interface ILLMProvider
     {
-        Task<string> ReplyAsync(DialogueContext context, CancellationToken token);
         Task<IReadOnlyList<MemoryRecord>> ExtractAsync(MessageRecord source, CancellationToken token);
     }
-    public interface ITTSProvider { Task<SpeechAudio> SpeakAsync(string text, string voice, CancellationToken token); }
     public interface IBehaviorProvider { Task<BehaviorDecision> DecideAsync(DialogueContext context, CancellationToken token); }
     public interface ISecretStore { string Get(string name); void Set(string name, string value); void DeleteAll(); }
     public interface IMemoryRepository : IDisposable

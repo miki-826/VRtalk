@@ -28,7 +28,7 @@ namespace QuestAI
         {
             var input=new JArray();foreach(var item in history)input.Add(new JObject{["type"]="message",["role"]=item.role,["content"]=new JArray(new JObject{["type"]=item.role=="assistant"?"output_text":"input_text",["text"]=item.text})});
             return new JObject{["type"]="session.start",["event_id"]="start_"+Guid.NewGuid().ToString("N"),["session"]=new JObject{
-                ["model"]=model,["store"]=false,["instructions"]="あなたはVR空間のAI会話相手です。日本語で短く自然に1〜3文で話します。ユーザーが話しかけるまで待ち、沈黙時に自分から話題を始めません。記憶や外部の事実が必要な場合だけバックエンドへ委譲してください。身体動作のト書きは読み上げません。性格: "+personality,
+                ["model"]=model,["store"]=false,["instructions"]="あなたはVR空間のAI会話相手です。日本語で短く自然に1〜3文で話します。ユーザーが話しかけるまで待ち、沈黙時に自分から話題を始めません。記憶や外部の事実が必要な場合だけバックエンドへ委譲してください。ユーザーに動き・移動・遊び・部屋の時間帯の変更を頼まれたら、あなたの体がその通りに実行するので、断らずに一言で引き受けてください。身体動作のト書きは読み上げません。性格: "+personality,
                 ["input"]=input,["audio"]=new JObject{["format"]=new JObject{["type"]="audio/pcm",["rate"]=24000},["output"]=new JObject{["voice"]=voice}},["delegation"]=new JObject{["type"]="client"}
             }};
         }

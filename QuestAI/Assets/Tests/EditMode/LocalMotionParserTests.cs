@@ -106,5 +106,183 @@ namespace QuestAI.Tests
             foreach(var key in keys.Skip(1).Take(keys.Length-2))
             {Assert.That(key.left_arm_out,Is.GreaterThan(100));Assert.That(key.left_elbow,Is.InRange(0,120));Assert.That(key.right_arm_out,Is.Zero);}
         }
+        [Test] public void DescribedPlacesBecomeWalkTargets()
+        {
+            var cases = new[] {
+                ("ソファの後ろに行って", MotionPlace.behind, "ソファ", ""),
+                ("暖炉の前に立って", MotionPlace.front, "暖炉", ""),
+                ("テーブルの右に移動して", MotionPlace.right, "テーブル", ""),
+                ("ソファの左側に行って", MotionPlace.left, "ソファ", ""),
+                ("椅子の横に来て", MotionPlace.beside, "椅子1", ""),
+                ("テーブルと暖炉の間に行って", MotionPlace.between, "テーブル", "暖炉"),
+                ("私とソファの間に立って", MotionPlace.between, "user", "ソファ"),
+                ("私の右に来て", MotionPlace.right, "user", ""),
+                ("僕の後ろに回って", MotionPlace.behind, "user", ""),
+                ("隣に来て", MotionPlace.beside, "user", ""),
+                ("部屋の真ん中に行って", MotionPlace.center, "", ""),
+                ("部屋の隅に行って", MotionPlace.corner, "", ""),
+                ("部屋の奥に行って", MotionPlace.far_side, "", ""),
+                ("あそこに行って", MotionPlace.pointed, "", ""),
+                ("そこまで歩いて", MotionPlace.pointed, "", ""),
+                ("指さしたところに行って", MotionPlace.pointed, "", "")
+            };
+            foreach (var item in cases)
+            {
+                var step = Steps(item.Item1)[0];
+                Assert.That(step.action, Is.EqualTo(MotionAction.walk_to), item.Item1);
+                Assert.That(step.place, Is.EqualTo(item.Item2), item.Item1);
+                Assert.That(step.target, Is.EqualTo(item.Item3), item.Item1);
+                Assert.That(step.toward, Is.EqualTo(item.Item4), item.Item1);
+            }
+        }
+
+        [Test] public void NearbyPhrasesKeepTheirMeaningAndUnknownPlacesAreNotGuessed()
+        {
+            var close = Steps("目の前に来て")[0];
+            Assert.That(close.action, Is.EqualTo(MotionAction.walk_to)); Assert.That(close.place, Is.EqualTo(MotionPlace.front)); Assert.That(close.target, Is.EqualTo("user"));
+            var hide = Steps("ソファの後ろに隠れて")[0];
+            Assert.That(hide.place, Is.EqualTo(MotionPlace.behind)); Assert.That(hide.target, Is.EqualTo("ソファ"));
+            // The room has no wall or fridge object: the request is reported, not turned into a bare "stand" or a side of the user.
+            foreach (var text in new[] { "壁の前に立って", "冷蔵庫の後ろに行って" })
+            {
+                var parsed = Parse(text); Assert.True(parsed.anyRequest, text); Assert.False(parsed.complete, text); Assert.True(parsed.plan.Empty, text);
+            }
+            // Older meanings that share words with places.
+            Assert.That(Steps("右を向いて")[0].action, Is.EqualTo(MotionAction.turn));
+            var sit = Steps("ソファに座って")[0]; Assert.That(sit.action, Is.EqualTo(MotionAction.sit)); Assert.That(sit.target, Is.EqualTo("ソファ"));
+            Assert.That(Steps("椅子の前に座って")[0].action, Is.EqualTo(MotionAction.sit));
+            Assert.That(Steps("ボールを私の右に転がして")[0].action, Is.EqualTo(MotionAction.roll));
+            Assert.That(Steps("後ろに下がって")[0].action, Is.EqualTo(MotionAction.move));
+            Assert.That(Steps("立って")[0].action, Is.EqualTo(MotionAction.stand));
+            Assert.That(Steps("私のそばに来て")[0].action, Is.EqualTo(MotionAction.approach_user));
+            Assert.That(Steps("ついてきて")[0].action, Is.EqualTo(MotionAction.follow_user));
+        }
+        [Test] public void PlacePhrasesFromTheSecondReview()
+        {
+            MotionStep Walk(string text) { var step = Steps(text)[0]; Assert.That(step.action, Is.EqualTo(MotionAction.walk_to), text); return step; }
+            // Coming FROM a place is not going to it.
+            Assert.That(Steps("ソファの後ろからこっちに来て")[0].action, Is.EqualTo(MotionAction.approach_user));
+            Assert.That(Steps("部屋の隅からこっちに来て")[0].action, Is.EqualTo(MotionAction.approach_user));
+            // Doing something AT a place: go there, then do it.
+            var spin = Steps("ソファの前でくるっと回って");
+            Assert.That(spin.Select(s => s.action), Is.EqualTo(new[] { MotionAction.walk_to, MotionAction.motion }));
+            Assert.That(spin[0].place, Is.EqualTo(MotionPlace.front)); Assert.That(spin[0].target, Is.EqualTo("ソファ")); Assert.That(spin[1].motion, Is.EqualTo(MotionPreset.spin));
+            var dance = Steps("部屋の真ん中で踊って");
+            Assert.That(dance[0].place, Is.EqualTo(MotionPlace.center)); Assert.That(dance[1].motion, Is.EqualTo(MotionPreset.dance));
+            var wave = Steps("暖炉の近くで手を振って");
+            Assert.That(wave[0].action, Is.EqualTo(MotionAction.walk_to)); Assert.That(wave[0].target, Is.EqualTo("暖炉")); Assert.That(wave[1].action, Is.EqualTo(MotionAction.gesture));
+            // 「そこで」 is where the character already is.
+            var onTheSpot = Steps("そこでジャンプして"); Assert.That(onTheSpot.Length, Is.EqualTo(1)); Assert.That(onTheSpot[0].motion, Is.EqualTo(MotionPreset.jump));
+            Assert.That(Steps("ジャンプしてくるっと回って").Select(s => s.motion), Is.EqualTo(new[] { MotionPreset.jump, MotionPreset.spin }));
+            // A named thing wins over 「あそこ」.
+            var sofa = Walk("あそこのソファに行って"); Assert.That(sofa.target, Is.EqualTo("ソファ")); Assert.That(sofa.place, Is.EqualTo(MotionPlace.none));
+            var behind = Walk("あそこのソファの後ろに行って"); Assert.That(behind.target, Is.EqualTo("ソファ")); Assert.That(behind.place, Is.EqualTo(MotionPlace.behind));
+            Assert.That(Walk("指さしている場所に行って").place, Is.EqualTo(MotionPlace.pointed));
+            // Distances and 「真」 between the thing and its side.
+            var metre = Walk("ソファの1メートル前に行って"); Assert.That(metre.place, Is.EqualTo(MotionPlace.front)); Assert.That(metre.amount, Is.EqualTo(1));
+            var steps2 = Walk("私の2歩右に立って"); Assert.That(steps2.place, Is.EqualTo(MotionPlace.right)); Assert.That(steps2.target, Is.EqualTo("user")); Assert.That(steps2.amount, Is.EqualTo(.8f).Within(.001f));
+            var right = Walk("私の真後ろに来て"); Assert.That(right.place, Is.EqualTo(MotionPlace.behind)); Assert.That(right.target, Is.EqualTo("user"));
+            var round = Walk("後ろに回って"); Assert.That(round.place, Is.EqualTo(MotionPlace.behind)); Assert.That(round.target, Is.EqualTo("user"));
+            var next = Walk("隣に行って"); Assert.That(next.place, Is.EqualTo(MotionPlace.beside)); Assert.That(next.target, Is.EqualTo("user"));
+            // Near a thing is beside it, also with 「来て」.
+            var near = Walk("ソファの近くに来て"); Assert.That(near.target, Is.EqualTo("ソファ")); Assert.That(near.place, Is.EqualTo(MotionPlace.none));
+            // Two of the same thing, and a numbered one.
+            var chairs = Walk("椅子と椅子の間に行って"); Assert.That(chairs.place, Is.EqualTo(MotionPlace.between)); Assert.That(new[] { chairs.target, chairs.toward }, Is.EquivalentTo(new[] { "椅子1", "椅子2" }));
+            Assert.That(Walk("椅子2の横に来て").target, Is.EqualTo("椅子2"));
+            // A bare direction with 「行って」 is a step that way.
+            var move = Steps("右に行って")[0]; Assert.That(move.action, Is.EqualTo(MotionAction.move)); Assert.That(move.direction, Is.EqualTo(MotionDirection.right));
+            Assert.That(Steps("前に行って")[0].direction, Is.EqualTo(MotionDirection.forward));
+        }
+        [Test] public void PlannerPlacesNeedARealAnchor()
+        {
+            // The AI names something that is not in the room: the step must fail visibly, not walk to a side of the user.
+            var plan = MotionPlans.Validate(new MotionPlan { steps = new[] { new MotionStep { action = MotionAction.walk_to, target = "冷蔵庫", place = MotionPlace.behind } } }, Room);
+            Assert.That(plan.steps[0].target, Is.Empty); Assert.That(plan.steps[0].place, Is.EqualTo(MotionPlace.none));
+            var kept = MotionPlans.Validate(new MotionPlan { steps = new[] { new MotionStep { action = MotionAction.walk_to, target = "user", place = MotionPlace.right, amount = 9 } } }, Room);
+            Assert.That(kept.steps[0].place, Is.EqualTo(MotionPlace.right)); Assert.That(kept.steps[0].amount, Is.EqualTo(3));
+        }
+        [Test] public void DescribedPlaceKeepsDistanceInMetres()
+        {
+            var step = Steps("ソファの前1メートルに立って")[0];
+            Assert.That(step.action, Is.EqualTo(MotionAction.walk_to));
+            Assert.That(step.place, Is.EqualTo(MotionPlace.front));
+            Assert.That(step.target, Is.EqualTo("ソファ"));
+            Assert.That(step.amount, Is.EqualTo(1));
+        }
+
+        [Test] public void OrdinaryDestinationsAndTurnsKeepTheirOriginalActions()
+        {
+            var destination = Steps("暖炉のところに行って")[0];
+            Assert.That(destination.action, Is.EqualTo(MotionAction.walk_to));
+            Assert.That(destination.target, Is.EqualTo("暖炉"));
+            Assert.That(destination.place, Is.EqualTo(MotionPlace.none));
+            Assert.That(Steps("こっちに来て")[0].action, Is.EqualTo(MotionAction.approach_user));
+            var turn = Steps("右に回って")[0];
+            Assert.That(turn.action, Is.EqualTo(MotionAction.turn));
+            Assert.That(turn.place, Is.EqualTo(MotionPlace.none));
+            var angled = Steps("右に90度回って")[0];
+            Assert.That(angled.action, Is.EqualTo(MotionAction.turn));
+            Assert.That(angled.direction, Is.EqualTo(MotionDirection.right));
+            Assert.That(angled.amount, Is.EqualTo(90));
+        }
+
+        [Test] public void HereMeansApproachUnlessTheUserIsPointing()
+        {
+            Assert.That(Steps("ここに来て")[0].action, Is.EqualTo(MotionAction.approach_user));
+            var request = new MotionRequest { places = Room.places, pointing = true };
+            var parsed = LocalMotionParser.Parse("ここに来て", request);
+            Assert.True(parsed.complete);
+            Assert.That(parsed.plan.steps[0].action, Is.EqualTo(MotionAction.walk_to));
+            Assert.That(parsed.plan.steps[0].place, Is.EqualTo(MotionPlace.pointed));
+        }
+
+        [Test] public void DescribedPlaceCanStartASequence()
+        {
+            var steps = Steps("ソファの後ろに行ってジャンプして");
+            Assert.That(steps.Select(s => s.action), Is.EqualTo(new[] { MotionAction.walk_to, MotionAction.motion }));
+            Assert.That(steps[0].place, Is.EqualTo(MotionPlace.behind));
+            Assert.That(steps[0].target, Is.EqualTo("ソファ"));
+            Assert.That(steps[1].motion, Is.EqualTo(MotionPreset.jump));
+        }
+
+        [Test] public void TimeOfDayCommandsSetTheRequestedTime()
+        {
+            var cases = new[] { ("夜にして", "夜"), ("朝に変えて", "朝"), ("夕方にして", "夕方"),
+                ("明るくして", "昼"), ("暗くして", "夜") };
+            foreach (var item in cases)
+            {
+                var step = Steps(item.Item1)[0];
+                Assert.That(step.action, Is.EqualTo(MotionAction.set_time), item.Item1);
+                Assert.That(step.target, Is.EqualTo(item.Item2), item.Item1);
+            }
+        }
+
+        [Test] public void TimeOfDayQuestionIsChat()
+        {
+            Assert.False(Parse("夜は好き？").anyRequest);
+        }
+
+        [Test] public void ValidationKeepsOnlyWalkPlacesAndKnownTimes()
+        {
+            var plan = new MotionPlan { steps = new[] {
+                new MotionStep { action = MotionAction.walk_to, target = "ソファ", place = MotionPlace.behind },
+                new MotionStep { action = MotionAction.turn, place = MotionPlace.right },
+                new MotionStep { action = MotionAction.set_time, target = "夜", place = MotionPlace.corner },
+                new MotionStep { action = MotionAction.set_time, target = "深夜" }
+            } };
+            var steps = MotionPlans.Validate(plan, Room).steps;
+            Assert.That(steps[0].place, Is.EqualTo(MotionPlace.behind));
+            Assert.That(steps[1].place, Is.EqualTo(MotionPlace.none));
+            Assert.That(steps[2].place, Is.EqualTo(MotionPlace.none));
+            Assert.That(steps[2].target, Is.EqualTo("夜"));
+            Assert.That(steps[3].target, Is.Empty);
+        }
+
+        [Test] public void PlannerSchemaIncludesPlacesAndFarSide()
+        {
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(MotionPlans.Schema());
+            StringAssert.Contains("place", json);
+            StringAssert.Contains("far_side", json);
+        }
     }
 }
