@@ -74,65 +74,64 @@ namespace QuestAI
         }
         public void Session()
         {
-            if(app.Brain)app.Brain.Resume();Clear("TOGETHER","声をかけてみよう","PCはUキー、QuestはA・Xボタンを押して話す。「ジャンプして」「ボールを転がして」など動きも頼めます。",true);
+            if(app.Brain)app.Brain.Resume();Clear("TOGETHER","声をかけてみよう","「ソファの後ろに行って」「踊って」など、話した通りに動きます。",true);
             Button("会話に接続  /  GPT-Live-1",()=>app.Brain?.Connect(),true);
             var ptt=ButtonAt("押して話す  /  PTT",0,cursor,430,70,null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
             ButtonAt("文字で話す  ›",454,cursor,434,70,TextChat);cursor+=86;
             ButtonAt("接続を終了",0,cursor,430,64,()=>app.Brain?.Disconnect());ButtonAt("設定",454,cursor,434,64,SettingsMenu);cursor+=84;
-            ButtonAt("いっしょに遊ぶ",0,cursor,280,64,Activities);ButtonAt("動きを試す",304,cursor,280,64,MotionLab);ButtonAt("メインメニューへ",608,cursor,280,64,app.ReturnMenu);cursor+=84;
+            ButtonAt("おもちゃで遊ぶ",0,cursor,280,64,Playground);ButtonAt("動きを試す",304,cursor,280,64,MotionLab);ButtonAt("メインメニューへ",608,cursor,280,64,app.ReturnMenu);cursor+=84;
             captions=TextAt("",content,0,cursor,888,214,28,Ink);ShowStatus("PC: U長押し ／ Quest: A・Xボタン ／ 画面: PTT長押し");
         }
         static readonly string[] QuickPhrases={"うん","ううん","ありがとう","もう一回言って","ちょっと待って"};
-        string lastDemo = "左手だけを振って";
+        // Short labels for the quick buttons and the request each one sends.
+        static readonly string[] QuickOrders={"真ん中へ","こっちへ","踊って","手を振って","止まって"},QuickOrderTexts={"部屋の真ん中に行って","こっちに来て","踊って","手を振って","止まって"};
+        // Ready-made requests that run on the device, plus free wording: places said in words, body movements and toys.
         public void MotionLab()
         {
             if(!app.Brain)return;
-            Clear("MOTION","動きを試してみよう","接続・APIキーなしで試せます。終わるまで姿勢や足元を見てみよう。",true);
-            string[] labels={"右手を上げたまま歩く","左手だけを振る","床に座る","立ち上がる","3回ジャンプ","お辞儀する","ボールを転がす","もう一度"};
-            string[] commands={"右手を上げたまま2歩前に歩いて","左手だけを振って","床に座って","立って","3回ジャンプして","お辞儀して","ボールを出してこっちに転がして",null};
+            Clear("MOTION","言葉で動かしてみよう","接続・キーなしで試せます。行き先も言葉で伝えられます。",true);
+            string[] labels={"部屋の真ん中へ行く","あなたの右に来る","見ている床へ行く","部屋の奥へ行く","右手を上げたまま歩く","左手だけを振る","床に座る","立ち上がる","3回ジャンプ","ボールを転がす"};
+            string[] commands={"部屋の真ん中に行って","私の右に来て","あそこに行って","部屋の奥に行って","右手を上げたまま2歩前に歩いて","左手だけを振って","床に座って","立って","3回ジャンプして","ボールを出してこっちに転がして"};
             for(int i=0;i<labels.Length;i++)
             {
                 string command=commands[i];
-                ButtonAt(labels[i],i%2*454,cursor+i/2*84,434,70,()=>{string text=command??lastDemo;if(app.Brain&&app.Brain.PerformLocalMotion(text))lastDemo=text;});
+                ButtonAt(labels[i],i%2*454,cursor+i/2*76,434,64,()=>app.Brain?.PerformLocalMotion(command));
             }
-            cursor+=336;
-            Note("左右はキャラクター自身の左右です。座った姿勢は「立ち上がる」で戻せます。",78);
-            Button("動きを止める",()=>app.Brain?.performer?.Stop(),true);Back(Session);
+            cursor+=380;
+            ButtonAt("言葉で指示する  ›",0,cursor,434,64,InstructionInput);ButtonAt("動きを止める",454,cursor,434,64,()=>app.Brain?.performer?.Stop(),true);cursor+=80;
+            Note("「見ている床へ行く」は、床を見ながら（または右グリップ／Fキーで指さしてから）押します。左右はキャラクター自身の左右です。",78);
+            Back(Session);
         }
         // Typing for when the user cannot speak: quick phrases send at once, the kana keys build a message. PC keyboards (with IME) also work.
-        public void TextChat()
+        public void TextChat()=>TextInput(false);
+        // The same keyboard, but the words go straight to the body (no voice connection): 「窓の前に立って手を振って」.
+        public void InstructionInput()=>TextInput(true);
+        void TextInput(bool order)
         {
             if(!app.Brain)return;
-            Clear("TEXT","文字で話しかける",SystemKeyboard?"声を出せない時用。返事は声と字幕で届きます。「キーボード」で漢字・英数字や音声入力も使えます。":"声を出せない時用。返事は声と字幕で届きます。PCはキーボード入力・Enterで送信。");
-            editValue="";IsEditing=true;secretEditing=false;editLimit=CharacterBrain.MaxTypedLength;returnPage=Session;Input.imeCompositionMode=IMECompositionMode.On;
+            string keyboard=SystemKeyboard?"「キーボード」で漢字・英数字や音声入力も使えます。":"PCはキーボード入力・Enterで送信。";
+            if(order)Clear("ORDER","言葉で指示する","動きや行き先を書くと、その通りに動きます。");
+            else Clear("TEXT","文字で話しかける","声を出せない時用。返事は声と字幕で届きます。");
+            Action back=order?(Action)MotionLab:Session;Action<string> send=order?(Action<string>)SendOrder:SendTyped;
+            editValue="";IsEditing=true;secretEditing=false;editLimit=CharacterBrain.MaxTypedLength;returnPage=back;Input.imeCompositionMode=IMECompositionMode.On;
             editText=TextAt("",content,10,196,868,74,28,Ink);
-            Action refresh=()=>editText.text=editValue.Length>0?editValue:"（ここに入力した文字が出ます）";refreshEdit=refresh;refresh();submitEdit=()=>SendTyped(editValue);
-            for(int i=0;i<QuickPhrases.Length;i++){string phrase=QuickPhrases[i];ButtonAt(phrase,i*177.6f,278,171,48,()=>SendTyped(phrase));}
+            Action refresh=()=>editText.text=editValue.Length>0?editValue:"（ここに入力した文字が出ます）";refreshEdit=refresh;refresh();submitEdit=()=>send(editValue);
+            var quick=order?QuickOrders:QuickPhrases;
+            for(int i=0;i<quick.Length;i++){string phrase=order?QuickOrderTexts[i]:quick[i];ButtonAt(quick[i],i*177.6f,278,171,48,()=>send(phrase));}
             for(int r=0;r<KanaInput.Rows.Length;r++)for(int i=0;i<KanaInput.Rows[r].Length;i++){string key=KanaInput.Rows[r][i].ToString();ButtonAt(key=="　"?"空白":key,i*88.8f,336+r*52,82.8f,46,()=>{editValue=KanaInput.Press(editValue,key,CharacterBrain.MaxTypedLength);refresh();});}
-            EditRow(656,refresh,"送信",()=>SendTyped(editValue));Back(Session);
+            EditRow(656,refresh,"送信",()=>send(editValue));Back(back);ShowStatus(keyboard);
         }
         void SendTyped(string text)
         {
             if(string.IsNullOrWhiteSpace(text)){ShowStatus("文字を入力してください。");return;}
             if(app.Brain&&app.Brain.SendText(text))Session();
         }
-        int quizRound,quizScore,topicIndex=-1;
-        string JourneyCharacter=>app.Brain?app.Brain.profile.id:app.Settings.characterId;
-        void Activities()
+        void SendOrder(string text)
         {
+            if(string.IsNullOrWhiteSpace(text)){ShowStatus("してほしいことを入力してください。");return;}
             if(!app.Brain)return;
-            app.Brain.Resume();
-            Clear("PLAY TOGETHER","いっしょに遊ぼう","会話はつながったまま。遊びながら話したり、動きを頼んだりできます。",true);
-            Button("手を振ってごあいさつ",()=>{
-                app.Brain.body.Apply(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.wave});
-                var journey=CompanionJourney.Load(app.Repository,JourneyCharacter);bool first=!journey.waved;journey.waved=true;journey.Save(app.Repository,JourneyCharacter);
-                ShowStatus(first?"★ ごあいさつスタンプを獲得！":"また会えてうれしいね！");
-            });
-            Button("しぐさクイズ  /  全3問",()=>{quizRound=quizScore=0;Quiz();});
-            Button("会話のお題を引く",TopicCard);
-            Button("おもちゃを置いて遊ぶ",Playground);
-            Button("交流スタンプを見る",()=>{Clear("COLLECTION","ふたりの交流スタンプ","スタンプはキャラクターごとに保存されます。",true);Note(CompanionJourney.Load(app.Repository,JourneyCharacter).Summary(),350);Back(Activities);});
-            Back(Session);
+            // Back to the motion page first, so the progress of the request shows there.
+            MotionLab();app.Brain.Instruct(text);
         }
         public void Playground()
         {
@@ -147,32 +146,7 @@ namespace QuestAI
             var ptt=ButtonAt("押して話す  /  PTT",0,cursor,430,70,null);var hold=ptt.gameObject.AddComponent<HoldToTalk>();hold.Down=()=>app.Brain?.BeginRecording();hold.Up=()=>app.Brain?.EndRecording();
             ButtonAt("文字で話す  ›",454,cursor,434,70,TextChat);cursor+=86;
             ButtonAt("動きを止める",0,cursor,430,64,()=>{play.Cancel();ShowStatus("止めました。");});ButtonAt("すべて片づける",454,cursor,434,64,play.ClearToys);
-            Back(Activities);ShowStatus("選択: "+play.SelectedName);
-        }
-        void TopicCard()
-        {
-            topicIndex=(topicIndex+UnityEngine.Random.Range(1,CompanionJourney.Topics.Length))%CompanionJourney.Topics.Length;
-            Clear("CONVERSATION CARD","今日の話題","気に入ったお題を、会話に戻って声で聞いてみよう。",true);
-            Note(CompanionJourney.Topics[topicIndex],170);
-            Button("もう一枚引く",TopicCard);Button("会話へ戻る",Session,true);Back(Activities);
-        }
-        void Quiz()
-        {
-            if(!app.Brain)return;
-            if(quizRound==3)
-            {
-                var journey=CompanionJourney.Load(app.Repository,JourneyCharacter);bool earned=quizScore==3&&!journey.memoryGame;
-                if(quizScore==3){journey.memoryGame=true;journey.Save(app.Repository,JourneyCharacter);}
-                Clear("RESULT","正解  "+quizScore+" / 3",earned?"★ しぐさクイズのスタンプを獲得！":"何度でも気軽に挑戦できます。",true);
-                app.Brain.body.Apply(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.wave});
-                Button("もう一度遊ぶ",()=>{quizRound=quizScore=0;Quiz();});Back(Activities);return;
-            }
-            Gesture[] gestures={Gesture.wave,Gesture.big_nod,Gesture.shrug};string[] names={"手を振った","大きくうなずいた","肩をすくめた"};
-            int answer=UnityEngine.Random.Range(0,gestures.Length);bool answered=false;
-            Clear("GESTURE QUIZ","どんなしぐさ？  "+(quizRound+1)+" / 3","キャラクターを見て、動きに合う答えを選ぼう。",true);
-            Action show=()=>app.Brain.body.Apply(new BehaviorDecision{emotion=Emotion.neutral,gesture=gestures[answer]});show();
-            for(int i=0;i<names.Length;i++){int choice=i;Button(names[i],()=>{if(answered)return;answered=true;if(choice==answer)quizScore++;quizRound++;ShowStatus(choice==answer?"正解！ 次の問題へ進もう。":"答えは「"+names[answer]+"」。次も見てみよう。");ButtonAt("次へ",454,690,434,64,Quiz,true);});}
-            Button("もう一度見せて",()=>{if(!answered)show();});Back(Activities);
+            Back(Session);ShowStatus("選択: "+play.SelectedName);
         }
         int characterPage;
         void Characters()
@@ -240,10 +214,11 @@ namespace QuestAI
                 case 0:
                     EditButton("OpenAI API Key", "",v=>app.Secrets.Set("OpenAI",v),true);
                     EditButton("Liveモデル",app.Settings.voiceModel,v=>app.Settings.voiceModel=v);
-                    EditButton("記憶抽出モデル",app.Settings.llmModel,v=>app.Settings.llmModel=v);
-                    Button("GPT-Live接続テスト",()=>app.TestProvider("OpenAI"));Note("会話本体: GPT-Live-1 / 記憶抽出: Responses API");break;
-                case 1:Note("PTTを押している間だけマイクを送信します。\n離すと録音と送信を停止します。\n1回の録音は最大60秒です。",150);Note("コントローラー: AまたはXボタン\nハンドトラッキング: PTTボタンをピンチで長押し",110);Note("Questの操作（PC版のキー操作と同じ）\n移動: 左スティック（WASD）／ 向き: 右スティック\n指さし: 右グリップ（F）／ 手を振る: Yボタン（H）\nしゃがむ・立つ: 左スティック押し込み（C）",190);
-                    Button("マイク・再生を確認（4秒）",()=>{if(!microphoneCheck)microphoneCheck=gameObject.AddComponent<MicrophoneCheck>();microphoneCheck.Begin(app.Settings.voiceVolume,ShowStatus);});Note("録音してその場で再生します。外部送信・ファイル保存は行いません。",90);break;
+                    EditButton("動作計画・記憶のモデル",app.Settings.llmModel,v=>app.Settings.llmModel=v);
+                    Button("GPT-Live接続テスト",()=>app.TestProvider("OpenAI"));Note("会話本体: GPT-Live-1 / 言葉からの動作計画・目で見て説明・記憶抽出: 上のモデル（OpenAI API）");break;
+                case 1:Note("PTT（Quest: A・Xボタン ／ PC: Uキー ／ 画面のPTTボタン）を押している間だけマイクを送信します。1回の録音は最大60秒です。",90);
+                    Note("Questの操作（カッコ内はPCのキー）\n移動: 左スティック（WASD）／ 向き: 右スティックを左右\nテレポート: 右スティックを前に倒して離す（Tを押して離す）\n指さし: 右グリップ（F）。床を指すとキャラクターがそこへ歩きます\n手を振る: Yボタン（H）／ しゃがむ・立つ: 左スティック押し込み（C）",230);
+                    Button("マイク・再生を確認（4秒）",()=>{if(!microphoneCheck)microphoneCheck=gameObject.AddComponent<MicrophoneCheck>();microphoneCheck.Begin(app.Settings.voiceVolume,ShowStatus);});Note("録音してその場で再生します。外部送信・ファイル保存は行いません。",62);break;
                 case 2:
                     EditButton("Live音声（空欄でキャラ既定）",app.Settings.voiceOverride,v=>app.Settings.voiceOverride=v);
                     Button("モデルに合う声へ戻す",()=>{app.Settings.voiceOverride="";app.SaveSettings();SettingsPage(page);});

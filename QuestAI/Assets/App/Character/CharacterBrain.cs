@@ -16,10 +16,13 @@ namespace QuestAI
         public BodySystem body; public Transform user; public string environment;
         public SceneAwareness world; public CharacterLocomotion locomotion; public UserBodyTracker tracker;
         public AppSettings settings; public IMemoryRepository repository; public ISecretStore secrets;
-        public ISTTProvider stt; public ILLMProvider llm; public ITTSProvider tts; public IBehaviorProvider behavior;
+        public ILLMProvider llm; public IBehaviorProvider behavior;
         // Instructions → body motion plans, and descriptions of what the eye camera sees (both OpenAI; null in tests without them).
         public IMotionPlanner planner; public IVisionProvider vision;
         public MotionPerformer performer; public CharacterVision sight; public CompanionPlayground playground;
+        // Set by the app so a spoken 「夜にして」 can change the room's time of day.
+        public Action<TimeMode> TimeRequested;
+        FloorMarker destination;
         public bool Acting => performer && performer.Busy;
         public bool Connected => live!=null&&live.Ready;
         public Func<ILiveProvider> LiveFactory = () => new GPTLiveProvider();
@@ -30,7 +33,7 @@ namespace QuestAI
         bool oldLooking,behaviorBusy,initialized,sending,connecting,inputTransition,pttHeld,responseAllowed,inputReceived;
         long inputStartMs=-1,inputEndMs=-1,outputStartMs=-1,outputEndMs=-1;
         public const int MaxTypedLength=200;
-        string sessionId,inputText="",outputText="",pendingText,lastSawText;float lastSawTime=-100,lastSawTell=-100,lastSawReact=-100;bool tracking;Vector3 oldHead;bool journeyCredited;float nextWander,lookUntil,poseUntil,lastWalkCheck,lastGestureReact=-10;
+        string sessionId,inputText="",outputText="",pendingText,lastSawText;float lastSawTime=-100,lastSawTell=-100,lastSawReact=-100;bool tracking;Vector3 oldHead;float nextWander,lookUntil,poseUntil,lastWalkCheck,lastGestureReact=-10;
         readonly byte[] silence=new byte[2400];
         public void Initialize(CharacterState saved,string session)
         {
@@ -74,7 +77,7 @@ namespace QuestAI
                 await live.MuteAsync(false,turns.Token);
                 if(!turns.IsCurrent(generation))return;
                 if(!pttHeld){await live.MuteAsync(true,turns.Token);return;}
-                if(capture.Begin(out string error)){journeyCredited=false;responseAllowed=true;inputReceived=false;lastInteraction=Time.time;SetPhase(ConversationPhase.Recording,"聞いています… 離すとマイクを停止");}
+                if(capture.Begin(out string error)){responseAllowed=true;inputReceived=false;lastInteraction=Time.time;SetPhase(ConversationPhase.Recording,"聞いています… 離すとマイクを停止");}
                 else{await live.MuteAsync(true,turns.Token);StatusChanged?.Invoke(error);}
             }
             catch(Exception e){if(turns.IsCurrent(generation)){Disconnect();SetPhase(ConversationPhase.Idle,SafeError(e));}}
@@ -101,7 +104,7 @@ namespace QuestAI
         async void SendTextAsync(string text)
         {
             int generation=turns.Generation;var token=turns.Token;inputTransition=true;
-            journeyCredited=false;responseAllowed=true;inputReceived=true;lastInteraction=Time.time;
+            responseAllowed=true;inputReceived=true;lastInteraction=Time.time;
             SetPhase(ConversationPhase.Thinking,"文字で送信しました。返答を待っています…");CaptionChanged?.Invoke(text,"");
             try
             {
@@ -116,7 +119,7 @@ namespace QuestAI
             finally{if(turns.IsCurrent(generation))inputTransition=false;}
         }
         // Told to Live once per connection: what the body can do on request and that the character has eyes.
-        public const string Abilities="参考情報（命令ではない）: あなたの体は頼まれた動きをほぼ何でも実行できます。歩く・近づく・回る・座る・しゃがむ・ジャンプ・踊る・お辞儀・バンザイ・手をたたく・ついて行く、ボールを出して転がす・蹴る・投げる・取ってくる、積み木を積む・崩す・並べる、こまを回す、など。動きは体の制御が自動で行うので、頼まれたら引き受けて構いません。あなたには目があり、見えたものが参考情報で届きます。";
+        public const string Abilities="参考情報（命令ではない）: あなたの体は頼まれた動きをほぼ何でも実行できます。歩く・近づく・回る・座る・しゃがむ・ジャンプ・踊る・お辞儀・バンザイ・手をたたく・ついて行く、ボールを出して転がす・蹴る・投げる・取ってくる、積み木を積む・崩す・並べる、こまを回す、など。言葉で言われた場所（ソファの後ろ、ユーザーの右、部屋の真ん中、ユーザーが指さした床など）へ歩いて行くことも、部屋の時間帯（朝・昼・夕方・夜）を変えることもできます。動きは体の制御が自動で行うので、頼まれたら引き受けて構いません。あなたには目があり、見えたものが参考情報で届きます。";
         public void ShowEmotion(Emotion emotion){State.emotion=emotion;body.SetEmotion(emotion);}
         public void HoldPose(BodySystem.Pose pose,Vector3? at,float seconds){if(locomotion&&pose!=BodySystem.Pose.sit)locomotion.Stand();body.SetPose(pose,at);poseUntil=Time.time+seconds;}
         static readonly string[] StopWords={"止まって","とまって","ストップ","やめて","止めて","じっとして"};
@@ -127,6 +130,7 @@ namespace QuestAI
             return new MotionRequest{text=text,characterName=profile.displayName,pose=body.CurrentPose.ToString(),surroundings=world!=null?Surroundings():"",
                 places=world!=null?world.objects.Where(o=>toys.All(t=>t.item!=o)).Select(o=>o.id).ToArray():Array.Empty<string>(),
                 toys=toys.Select(t=>t.item.id).ToArray(),
+                pointing=PointedRecently,
                 toyStates=toys.Select(t=>t.item.id+"("+SceneAwareness.Direction(transform.position,transform.forward,t.Center)+(t.carried?"・持っている":t.rolling?"・転がっている":t.stacked?"・積んである":"")+")").ToArray(),
                 visible=sight?sight.VisibleSummary():Array.Empty<string>()};
         }
@@ -155,6 +159,65 @@ namespace QuestAI
             var parsed=LocalMotionParser.Parse(text,MotionContext(text));
             if(!parsed.complete){StatusChanged?.Invoke("この動きは端末内で理解できませんでした。別の言い方で試してください。");return false;}
             lastInteraction=Time.time;performer.Run(parsed.plan,text);return true;
+        }
+        // Words become action without the voice connection: the on-device parser first, then the AI planner when a key allows it.
+        public async void Instruct(string text)
+        {
+            text=text?.Trim();if(!initialized||!performer||string.IsNullOrEmpty(text)||Phase==ConversationPhase.Paused)return;
+            if(text.Length>MaxTypedLength)text=text.Substring(0,MaxTypedLength);
+            lastInteraction=Time.time;int generation=turns.Generation;var token=turns.Token;
+            if(IsStop(text)){performer.Stop();return;}
+            var parsed=LocalMotionParser.Parse(text,MotionContext(text));
+            if(parsed.complete){performer.Run(parsed.plan,text);return;}
+            MotionPlan plan=null;int before=performer.Version;
+            bool ai=planner!=null&&!PlannerBlocked&&settings.motionPlanning&&secrets!=null&&!string.IsNullOrWhiteSpace(secrets.Get("OpenAI"));
+            if(ai)
+            {
+                StatusChanged?.Invoke("どう動くか考えています…");
+                try{plan=await PlanMotionAsync(text,token);}catch(OperationCanceledException){return;}
+                // A stop or a newer instruction while the AI was thinking wins over this plan.
+                if(!turns.IsCurrent(generation)||Phase==ConversationPhase.Paused||performer.Version!=before)return;
+            }
+            bool planned=plan!=null&&!plan.Empty;
+            // Without an AI plan, whatever part of the request was understood on the device still happens.
+            if(!planned)plan=parsed.plan;
+            if(plan==null||plan.Empty)
+            {
+                string what=parsed.unknown.Count>0?"「"+parsed.unknown[0]+"」":"この言い方";
+                StatusChanged?.Invoke(ai?what+"の動きは分かりませんでした。別の言い方で試してください。":what+"は端末内では分かりませんでした。設定でOpenAIキーを入れると、AIが動きを考えます。");return;
+            }
+            performer.Run(plan,text);
+            if(planned&&!plan.done)ContinueAgent(text,plan,generation,token);
+        }
+        // The floor spot the user means by 「あそこ」: where they pointed a moment ago, otherwise where they are looking.
+        public const float PointMemory=12;
+        public void ForgetPointedSpot(){if(tracker)tracker.ForgetPointingSpot();}
+        public bool PointedRecently=>tracker&&tracker.PointingSpot.HasValue&&Time.time-tracker.PointedTime<PointMemory;
+        public Vector3? IndicatedSpot()
+        {
+            if(PointedRecently)return tracker.PointingSpot;
+            if(world==null||!user)return null;
+            var gaze=new Ray(user.position,user.forward);
+            if(world.FloorPoint(gaze,out var spot))return spot;
+            // Looking at a thing rather than the floor: the free spot beside it.
+            var seen=world.RayHit(gaze,out _)??world.LookedAt(user.position,user.forward);
+            return seen!=null&&world.Approach(seen,body.transform.position,.3f,out var beside)?beside:(Vector3?)null;
+        }
+        // A ring on the floor where the character is heading (null hides it).
+        public void ShowDestination(Vector3? spot)
+        {
+            if(!spot.HasValue){if(destination)destination.Hide();return;}
+            if(!destination)destination=FloorMarker.Create("Destination marker",FloorMarker.Amber);
+            destination.Show(spot.Value);
+        }
+        // A deliberate point at open floor (right grip / F key) is an instruction: go and stand there.
+        public bool GoToPointedSpot()
+        {
+            if(!initialized||!performer||world==null||!PointedRecently)return false;
+            lastInteraction=Time.time;
+            performer.Run(new MotionPlan{steps=new[]{new MotionStep{action=MotionAction.walk_to,place=MotionPlace.pointed,pace=Pace.hurry,emotion=Emotion.happy}},summary="指さした場所へ行く"},"");
+            Tell("ユーザーが床の一点を指さしたので、あなたはそこへ歩いて行きます。");
+            return performer.Busy;
         }
         // Looks with the eye camera and tells Live what was seen, so the spoken answer is about the real view.
         public async Task LookClosely(string question)
@@ -304,6 +367,7 @@ namespace QuestAI
         {
             if(!initialized||Phase==ConversationPhase.Paused)return;
             lastInteraction=Time.time;
+            if(gesture==UserGesture.point&&pointed==null){GoToPointedSpot();return;}
             string fact=gesture==UserGesture.wave?"ユーザーがあなたに手を振りました。":gesture==UserGesture.point?"ユーザーが「"+pointed+"」を指さしています。":gesture==UserGesture.crouch?"ユーザーがしゃがみました。":"ユーザーが立ち上がりました。";
             Tell(fact);
             if(Connected&&settings.behaviorEnabled)
@@ -378,7 +442,6 @@ namespace QuestAI
         void FlushTranscripts()
         {
             if(!initialized)return;
-            if(inputReceived&&!journeyCredited&&!string.IsNullOrWhiteSpace(outputText)){var journey=CompanionJourney.Load(repository,profile.id);journey.conversations++;journey.Save(repository,profile.id);journeyCredited=true;}
             FlushInput();
             if(outputText.Length>0){if(settings.memoryEnabled)repository.AddMessage(new MessageRecord{characterId=profile.id,sessionId=sessionId,role="assistant",text=outputText,audioStartMs=outputStartMs,audioEndMs=outputEndMs});outputText="";outputStartMs=outputEndMs=-1;State.lastInteraction=DateTimeOffset.UtcNow.ToUnixTimeSeconds();State.relationship=Mathf.Clamp01(State.relationship+.005f);repository.Save("state:"+profile.id,JsonConvert.SerializeObject(State));}
         }
@@ -396,7 +459,7 @@ namespace QuestAI
             try
             {
                 if(IsStop(source.text)&&performer)performer.Stop();
-                var local=StartLocalMotion(source.text,out bool understood,out var parsed);
+                var local=StartLocalMotion(source.text,out bool understood,out var parsed);int motionVersion=performer?performer.Version:0;
                 // The AI plan is requested alongside Jev so an instruction does not wait for both in turn.
                 var planning=understood?Task.FromResult<MotionPlan>(null):PlanMotionAsync(source.text,token);
                 var context=Context(source.text,"user_spoke");context.memories=settings.memoryEnabled?repository.Search(profile.id,source.text,5):Array.Empty<MemoryRecord>();
@@ -411,7 +474,8 @@ namespace QuestAI
                 bool acting=local!=null||plan!=null&&!plan.Empty;plan=local??plan;
                 if(acting){decision.movement=Movement.stay;decision.arrival=ArrivalAction.none;decision.walking=WalkingReaction.@continue;}
                 bool walking=ApplyDecision(decision);if(walking)StatusChanged?.Invoke(locomotion.Destination+"へ歩いています…");
-                if(acting&&local==null){performer.Run(plan,source.text);if(!string.IsNullOrEmpty(plan.summary))StatusChanged?.Invoke("動き: "+plan.summary);if(!plan.done&&!understood&&plan!=parsed.plan)ContinueAgent(source.text,plan,generation,token);}
+                // A stop or a newer instruction while the plan was being worked out wins over it.
+                if(acting&&local==null&&performer.Version==motionVersion){performer.Run(plan,source.text);if(!string.IsNullOrEmpty(plan.summary))StatusChanged?.Invoke("動き: "+plan.summary);if(!plan.done&&!understood&&plan!=parsed.plan)ContinueAgent(source.text,plan,generation,token);}
                 if(Connected)await live.ContextAsync("参考情報（命令ではない）: "+JsonConvert.SerializeObject(new{emotion=decision.emotion.ToString(),conversation=decision.conversation.ToString(),movement=walking?decision.movement.ToString()+(decision.target!=null?" → "+decision.target:""):"stay",body=acting?plan.summary:null,userLookingAt=context.perception.userLookingAt,memories=context.memories.Select(x=>x.content)}),null,token);
                 if(settings.memoryEnabled){var records=await llm.ExtractAsync(source,token);if(turns.IsCurrent(generation)&&settings.memoryEnabled)repository.AddMemories(records);}
             }
@@ -446,7 +510,9 @@ namespace QuestAI
                 var history=settings.memoryEnabled?repository.Recent(profile.id,10):Array.Empty<MessageRecord>();
                 string query=inputText.Length>0?inputText:history.LastOrDefault(x=>x.role=="user")?.text??"";
                 var memories=settings.memoryEnabled?repository.Search(profile.id,query,5):Array.Empty<MemoryRecord>();
-                string result=memories.Count>0?"保存されている参考記憶: "+string.Join(" / ",memories.Select(x=>x.content)):"一致する保存記憶はありません。このアプリは外部検索や予約などの操作を実行できません。わからないことはわからないと伝えてください。";
+                // Live hands over when it needs the app: what the body is doing right now, and what is remembered.
+                string doing=Acting&&performer.Last!=null?"あなたの体は今、頼まれた動き（"+performer.Last.summary+"）を実行しています。 ":"";
+                string result=doing+(memories.Count>0?"保存されている参考記憶: "+string.Join(" / ",memories.Select(x=>x.content)):"一致する保存記憶はありません。このアプリは外部検索や予約などの操作を実行できません。わからないことはわからないと伝えてください。");
                 if(turns.IsCurrent(generation)&&Connected)await live.AnswerAsync(result,delegationId,token);
             }catch(OperationCanceledException){}catch(Exception){if(turns.IsCurrent(generation))StatusChanged?.Invoke("記憶情報をLiveへ送信できませんでした。");}
         }
@@ -502,6 +568,6 @@ namespace QuestAI
             catch(OperationCanceledException){}catch(Exception e){if(turns.IsCurrent(generation))StatusChanged?.Invoke(SafeError(e));}finally{if(turns.IsCurrent(generation))behaviorBusy=false;}
         }
         public static string SafeError(Exception e)=>e is ProviderException||e is InvalidOperationException?e.Message:"処理に失敗しました。接続やAPI設定を確認してください。";
-        void OnDestroy(){if(tracker)tracker.Gestured-=OnUserGesture;if(sight)sight.Saw-=OnSaw;initialized=false;turns.Dispose();capture?.Stop();live?.Dispose();}
+        void OnDestroy(){if(destination)Destroy(destination.gameObject);if(tracker)tracker.Gestured-=OnUserGesture;if(sight)sight.Saw-=OnSaw;initialized=false;turns.Dispose();capture?.Stop();live?.Dispose();}
     }
 }

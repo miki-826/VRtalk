@@ -35,15 +35,12 @@ namespace QuestAI.Tests
                 var lighting=Object.FindAnyObjectByType<EnvironmentLighting>();Assert.That(lighting.bakes.Length,Is.EqualTo(4));foreach(var bake in lighting.bakes)Assert.That(bake.maps.Length,Is.GreaterThan(0));
                 app.Brain.body.Apply(new BehaviorDecision{emotion=Emotion.happy,gesture=Gesture.wave});yield return null;yield return SaveImage(app.Head.GetComponent<Camera>(),env.id+"-Session");
             }
-            Click(app,"いっしょに遊ぶ");Assert.False(app.Brain.Connected);
-            Click(app,"手を振ってごあいさつ");Assert.True(CompanionJourney.Load(app.Repository,app.Brain.profile.id).waved);
-            yield return SaveImage(app.Head.GetComponent<Camera>(),"Activities-UI");
-            Click(app,"しぐさクイズ  /  全3問");
-            for(int round=0;round<3;round++){yield return new WaitForSeconds(.4f);Click(app,"手を振った");Click(app,"次へ");}
-            Assert.True(app.UI.Canvas.GetComponentsInChildren<Text>().Any(t=>t.text.StartsWith("正解  ")));
-            Click(app,"← 戻る");Click(app,"会話のお題を引く");
-            Assert.True(app.UI.Canvas.GetComponentsInChildren<Text>().Any(t=>CompanionJourney.Topics.Contains(t.text)));
-            Click(app,"会話へ戻る");
+            // The session page leads straight to toy play and to the motion page with its typed-instruction input.
+            Click(app,"おもちゃで遊ぶ");Assert.False(app.Brain.Connected);Assert.True(app.UI.Canvas.GetComponentsInChildren<Text>().Any(t=>t.text=="ボールを置く"));
+            yield return SaveImage(app.Head.GetComponent<Camera>(),"Playground-UI");
+            Click(app,"← 戻る");Click(app,"動きを試す");Click(app,"言葉で指示する  ›");Assert.True(app.UI.IsEditing);
+            yield return SaveImage(app.Head.GetComponent<Camera>(),"Instruction-UI");
+            Click(app,"← 戻る");Assert.False(app.UI.IsEditing);Click(app,"← 戻る");
             // Exercise visible poses, not just the presence of BlendShape channel names.
             foreach(Emotion emotion in System.Enum.GetValues(typeof(Emotion)))
             {

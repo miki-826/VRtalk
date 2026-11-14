@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace QuestAI.Tests
 {
-    public class PixelCharacterTests
+    public class MascotModelTests
     {
         // しろ（いぬ）・こはく（ロボ）・もも（うさぎ）・むぎ（ねこ） are chibi mascots generated from scratch (MascotCharacterBuilder).
         [Test] public void ActiveModelsKeepRigFaceAndSkinning()

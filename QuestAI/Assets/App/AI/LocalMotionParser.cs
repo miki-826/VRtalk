@@ -22,7 +22,7 @@ namespace QuestAI
         static readonly Regex Splitter = new Regex("[。、,，!！?？\n]|そして|それから|その後|そのあと|次に|つぎに|あとで");
         static readonly Regex Number = new Regex(@"(\d+(?:\.\d+)?|[一二三四五六七八九十百]+|半)\s*(回|かい|歩|ほ|メートル|ｍ|m|度|ど|段|だん|個|こ|秒|びょう)");
         // Split connected imperatives, but leave auxiliary endings (てみて/でください) and simultaneous poses intact.
-        static readonly Regex Connected = new Regex(@"(?<=(?:して|んで|いて|いで|って|えて|けて|げて|せて|めて|べて|れて|きて|来て|見て|みて))(?<!急いで)(?<!いそいで)(?=(?:ゆっくり|そっと|急いで|早く|次|その|それ|こっち|あっち|[左右両前後]|\d|[一二三四五六七八九十]|ジャンプ|じゃんぷ|お辞儀|踊|おど|拍手|手を|腕を|頭を|首を|体を|足を|座|すわ|立|たち|しゃが|歩|あるい|走|はし|回|まわ|向|むい|ボール|積み木|クッション|本を|箱を|ぬいぐるみ|窓|暖炉|ソファ|椅子|テーブル|外を|拾|ひろ|投げ|なげ|蹴|転が|ころが|崩|くず|並べ|待|まって|止ま|ストップ))");
+        static readonly Regex Connected = new Regex(@"(?<=(?:して|んで|いて|いで|って|えて|けて|げて|せて|めて|べて|れて|きて|来て|見て|みて))(?<!急いで)(?<!いそいで)(?=(?:ゆっくり|そっと|急いで|早く|次|その|それ|こっち|あっち|[左右両前後]|\d|[一二三四五六七八九十]|ジャンプ|じゃんぷ|くるっと|くるくる|くるりと|一回転|スピン|お辞儀|踊|おど|拍手|手を|腕を|頭を|首を|体を|足を|座|すわ|立|たち|しゃが|歩|あるい|走|はし|回|まわ|向|むい|ボール|積み木|クッション|本を|箱を|ぬいぐるみ|窓|暖炉|ソファ|椅子|テーブル|外を|拾|ひろ|投げ|なげ|蹴|転が|ころが|崩|くず|並べ|待|まって|止ま|ストップ))");
         static bool Has(string text, params string[] words) => words.Any(text.Contains);
 
         public static Result Parse(string text, MotionRequest context)
@@ -125,6 +125,105 @@ namespace QuestAI
             if (Has(clause, "それ", "これ", "あれ", "そいつ")) return lastToy ?? "";
             return lastToy ?? "";
         }
+        // Things and people named in a clause, in the order they are said (「テーブルと窓の間」 → テーブル, 窓; 「私」 → user).
+        static readonly string[] UserWords = { "私", "わたし", "僕", "ぼく", "俺", "おれ", "自分", "あたし" };
+        static List<(int at, string hit, string id)> Anchors(string clause, MotionRequest context)
+        {
+            var found = new List<(int at, string hit, string id)>();
+            var names = (context?.places ?? Array.Empty<string>()).Concat(context?.toys ?? Array.Empty<string>());
+            // Full ids (「椅子2」) before bare labels (「椅子」), longer names first.
+            foreach (var id in names.OrderBy(n => clause.Contains(n) ? 0 : 1).ThenByDescending(n => n.Length))
+            {
+                string label = id.TrimEnd("0123456789".ToCharArray());
+                string hit = clause.Contains(id) ? id : label.Length > 0 && clause.Contains(label) ? label : null;
+                if (hit == null) continue;
+                // The first mention not already taken: 「ひじ掛け椅子」 is not also a 「椅子」, while 「椅子と椅子の間」 names both chairs.
+                for (int at = clause.IndexOf(hit, StringComparison.Ordinal); at >= 0; at = clause.IndexOf(hit, at + 1, StringComparison.Ordinal))
+                {
+                    if (found.Any(f => at < f.at + f.hit.Length && f.at < at + hit.Length)) continue;
+                    found.Add((at, hit, id)); break;
+                }
+            }
+            foreach (var word in UserWords)
+            {
+                int at = clause.IndexOf(word, StringComparison.Ordinal);
+                if (at >= 0) { found.Add((at, word, "user")); break; }
+            }
+            return found.OrderBy(f => f.at).ToList();
+        }
+        // An optional distance said with the side: 「ソファの1メートル前」「私の2歩右」「ソファの前1メートル」.
+        const string Gap = "(?:(?:約|だいたい)?(?:\\d+(?:\\.\\d+)?|[一二三四五六七八九十百]+|半)(?:メートル|ｍ|m|歩|ほ)(?:ぐらい|くらい|ほど)?)?";
+        const string Sides = Gap + "(?:すぐ|真|ま|ちょうど|少し|ちょっと)?(手前|てまえ|正面|前|まえ|後ろ|うしろ|裏|うら|向こう|むこう|奥|背後|左|ひだり|右|みぎ|横|よこ|隣|となり|脇|わき)";
+        // A place to go to takes 「に」「へ」「まで」 (or nothing, straight before the verb): not 「から」 (a place to leave) or 「で」 (a place to do something).
+        const string To = Gap + "(?:側|がわ|の方|のほう|あたり)?(?:に|へ|まで|(?=行って|いって|行こう|来て|きて|立って|移動|歩いて|走って|隠れて))";
+        static MotionPlace Side(string word)
+        {
+            switch (word)
+            {
+                case "手前": case "てまえ": case "正面": case "前": case "まえ": return MotionPlace.front;
+                case "後ろ": case "うしろ": case "裏": case "うら": case "向こう": case "むこう": case "奥": case "背後": return MotionPlace.behind;
+                case "左": case "ひだり": return MotionPlace.left;
+                case "右": case "みぎ": return MotionPlace.right;
+                default: return MotionPlace.beside;
+            }
+        }
+        static readonly Regex PointedPlace = new Regex("あそこ|あの場所|その場所|あのへん|そのへん|あの辺|その辺|(?:指さ|指差|指)(?:した|して(?:い)?る)(?:ところ|所|場所|床|あたり|辺)|見て(?:い)?る(?:ところ|所|場所|床|あたり|辺)|(?<![あこど])そこ(?=に|へ|まで|ら辺|らへん)");
+        static readonly Regex HerePlace = new Regex("ここ(?:に|へ|まで)|この(?:辺|へん|場所)");
+        // 「ソファの後ろからこっちに来て」: the place is where to come from, so it is not a destination.
+        static readonly Regex FromPlace = new Regex("(?:手前|正面|前|まえ|後ろ|うしろ|裏|向こう|むこう|奥|背後|左|ひだり|右|みぎ|横|よこ|隣|となり|脇|あそこ|そこ|ここ|場所|ところ|所|辺|へん|隅|すみ|すみっこ|角|真ん中|まんなか|中央|向こう側|反対側|間|あいだ)(?:側|がわ|の方|のほう)?から");
+        // 「壁の前に立って」: a side of something, said with a verb of going.
+        static readonly Regex SideOfSomething = new Regex("の" + Sides + To);
+        static readonly Regex OwnSide = new Regex("(?<!の)" + Sides + To + Gap + "(?:来て|きて|来い|おいで|立って|たって|並んで|ならんで|いて)");
+        // 「後ろに回って」 goes round behind the user (「右に回って」 stays a turn); 「隣に行って」 goes beside them.
+        static readonly Regex BehindMe = new Regex("(?<!の)(?:後ろ|うしろ|背後)(?:側|の方|のほう)?(?:に|へ)(?:回って|まわって|回り込)");
+        static readonly Regex BesideMe = new Regex("(?<!の)(?:隣|となり|横|よこ)(?:側)?(?:に|へ)(?:行って|いって|移動)");
+        static readonly string[] GoWords = { "行って", "いって", "行こう", "いこう", "行け", "行き", "来て", "きて", "来い", "おいで", "立って", "たって", "移動", "歩いて", "あるいて", "歩こう", "走って", "はしって", "向かって", "むかって", "回って", "まわって", "回り込", "進んで", "すすんで", "戻って", "もどって", "動いて", "うごいて", "並んで", "ならんで", "寄って", "にいて", "隠れて", "かくれて" };
+        // A place said in words becomes a walk to that spot: a side of a thing or of the user, the gap between two things,
+        // a part of the room, or the spot the user points (or looks) at. Null when the clause names no such place.
+        static MotionStep Described(string c, MotionRequest context)
+        {
+            if (!Has(c, GoWords) || FromPlace.IsMatch(c)) return null;
+            // Turning on the spot is not going somewhere: 「くるっと回って」「右に90度回って」.
+            if (Has(c, "くるっと", "くるくる", "くるりと", "一回転", "回転", "スピン", "ターン") || Amount(c, "度", "ど") > 0) return null;
+            bool deictic = PointedPlace.IsMatch(c) || context != null && context.pointing && HerePlace.IsMatch(c);
+            if (!deictic && Has(c, "座", "すわ", "指さ", "指差", "ゆびさ", "指して")) return null;
+            float distance = Amount(c, "メートル", "m", "ｍ"); if (distance <= 0) distance = Amount(c, "歩", "ほ") * .4f;
+            MotionStep At(MotionPlace place, string target = "", string toward = "") { var step = Step(MotionAction.walk_to, target, MotionDirection.none, distance, toward); step.place = place; return step; }
+            if (Has(c, "目の前", "めのまえ")) return At(MotionPlace.front, "user");
+            var anchors = Anchors(c, context); bool things = anchors.Any(a => a.id != "user");
+            if (anchors.Count >= 2 && Regex.IsMatch(c, "の(?:間|あいだ|中間|真ん中|まんなか)")) return At(MotionPlace.between, anchors[0].id, anchors[1].id);
+            // 「あそこのソファの後ろ」 is about the sofa; a bare 「あそこ」 is the spot pointed or looked at.
+            if (deictic && !things) return At(MotionPlace.pointed);
+            foreach (var anchor in anchors)
+            {
+                var side = Regex.Match(c.Substring(anchor.at + anchor.hit.Length), "^の" + Sides + To);
+                if (side.Success) return At(Side(side.Groups[1].Value), anchor.id);
+            }
+            if (Has(c, "隅", "すみっこ", "すみに", "すみへ", "すみまで", "角に", "かどに", "コーナー")) return At(MotionPlace.corner, anchors.FirstOrDefault(a => a.id != "user").id ?? "");
+            if (anchors.Count == 0)
+            {
+                if (Has(c, "真ん中", "まんなか", "中央", "中心", "センター")) return At(MotionPlace.center);
+                if (Has(c, "部屋の奥", "奥に", "奥へ", "奥まで", "奥のほう", "奥の方", "向こう側", "むこうがわ", "反対側", "はんたいがわ", "向こうの壁", "遠いほう", "遠い方", "一番遠")) return At(MotionPlace.far_side);
+                // A side of something the room does not have is left to the caller, not read as the user's own side.
+                if (SideOfSomething.IsMatch(c)) return null;
+                if (BehindMe.IsMatch(c)) return At(MotionPlace.behind, "user");
+                if (BesideMe.IsMatch(c)) return At(MotionPlace.beside, "user");
+                // 「右に来て」「隣に立って」: the user's own sides.
+                var own = OwnSide.Match(c);
+                if (own.Success) return At(Side(own.Groups[1].Value), "user");
+            }
+            return null;
+        }
+        // The place before a 「で」 (「ソファの前で踊って」「窓の近くで手を振って」): where to go before doing the rest.
+        static MotionStep Stage(string phrase, MotionRequest context)
+        {
+            // 「そこでジャンプして」 means on the spot where the character already is.
+            if (Regex.IsMatch(phrase, "(?<!あ)そこ$")) return null;
+            var described = Described(phrase + "に来て", context);
+            if (described != null) return described;
+            string near = Regex.IsMatch(phrase, "の(?:近く|ちかく|そば|ところ|所|あたり)$") ? Mentioned(phrase, context) : null;
+            return near != null ? Step(MotionAction.walk_to, near) : null;
+        }
         static MotionStep Step(MotionAction action, string target = "", MotionDirection direction = MotionDirection.none, float amount = 0, string toward = "") => new MotionStep { action = action, target = target ?? "", direction = direction, amount = amount, toward = toward ?? "" };
 
         static List<MotionStep> Clause(string c, MotionRequest context, ref string lastToy, out string said)
@@ -149,6 +248,10 @@ namespace QuestAI
             if (Has(c, "見える", "みえる", "何が見", "なにが見", "なにがみ", "何見て", "何を見", "これ見て", "あれ見て", "よく見て", "見てみて", "周り見", "まわり見", "観察", "景色", "けしき", "外を見", "そとを見", "様子を見"))
             { steps.Add(Step(MotionAction.look_closely, Mentioned(c, context))); said = "よく見る"; return steps; }
             if (Has(c, "片づけ", "片付け", "かたづけ", "しまって", "お片付け")) { steps.Add(Step(MotionAction.put_away)); said = "おもちゃを片づける"; return steps; }
+            // 「夜にして」「朝に変えて」「明るくして」: the room's time of day.
+            string time = Regex.IsMatch(c, "(?:時間|じかん).*(?:自動|元|もと)|(?:自動|オート)に(?:して|戻|もど)") ? "自動" : Regex.IsMatch(c, "(?:明るく|あかるく)(?:して|しよう|なって)") ? "昼" : Regex.IsMatch(c, "(?:暗く|くらく)(?:して|しよう|なって)") ? "夜"
+                : Regex.Match(c, "(朝|あさ|昼|ひる|夕方|ゆうがた|夕焼け|夜|よる)(?:の時間|の部屋)?に(?:して|しよう|変えて|かえて|なって|切り替え)") is Match clock && clock.Success ? (clock.Groups[1].Value[0] == '朝' || clock.Groups[1].Value == "あさ" ? "朝" : clock.Groups[1].Value[0] == '昼' || clock.Groups[1].Value == "ひる" ? "昼" : clock.Groups[1].Value[0] == '夕' || clock.Groups[1].Value == "ゆうがた" ? "夕方" : "夜") : null;
+            if (time != null && !Has(c, "手", "腕", "足", "脚", "顔", "目")) { steps.Add(Step(MotionAction.set_time, time)); said = "部屋を" + time + "にする"; return steps; }
 
             // Toys.
             var kind = CompanionPlayground.KindOf(c); string toy = ToyIn(c, context, ref lastToy);
@@ -193,14 +296,28 @@ namespace QuestAI
             // Moving around.
             if (Has(c, "ついてき", "ついて来", "ついてこ", "付いて", "ついて"))
             { steps.Add(Step(MotionAction.follow_user, "", MotionDirection.none, Amount(c, "秒", "びょう") is float s && s > 0 ? s : 20)); said = "ついて行く"; return steps; }
+            // 「ソファの前で踊って」: go to the place said before 「で」, then do the rest there.
+            for (int at = c.IndexOf('で'), tries = 0; at > 0 && at < c.Length - 1 && tries < 3; at = c.IndexOf('で', at + 1), tries++)
+            {
+                var stage = Stage(c.Substring(0, at), context); if (stage == null) continue;
+                var there = Clause(c.Substring(at + 1), context, ref lastToy, out string then);
+                if (there.Count == 0) break;
+                steps.Add(stage); steps.AddRange(there); said = PlaceResolver.Name(stage.place, stage.target, stage.toward) + "で" + then; return steps;
+            }
+            var described = Described(c, context);
+            if (described != null) { steps.Add(described); said = PlaceResolver.Name(described.place, described.target, described.toward) + "へ行く"; return steps; }
+            // A side of something this room does not have (「壁の前に立って」) is not understood here, rather than obeyed as a bare 「立って」.
+            if (Has(c, GoWords) && SideOfSomething.IsMatch(c) && !Has(c, "座", "すわ", "手", "腕", "足", "脚", "頭", "体")) return steps;
             string place = Mentioned(c, context);
-            if (place != null && Has(c, "行って", "いって", "行こう", "いこう", "行け", "まで", "に向か", "のところ", "のそば", "の前", "へ行", "に行", "歩いて", "あるいて", "近づ", "ちかづ") && !Has(c, "座", "すわ", "指", "見て", "みて"))
+            if (place != null && Has(c, "行って", "いって", "行こう", "いこう", "行け", "まで", "に向か", "のところ", "の所", "のそば", "の近く", "のちかく", "のあたり", "の前", "へ行", "に行", "歩いて", "あるいて", "近づ", "ちかづ") && !Has(c, "座", "すわ", "指", "見て", "みて"))
             { steps.Add(Step(MotionAction.walk_to, place)); said = place + "へ行く"; return steps; }
             if (Has(c, "来て", "こっち", "おいで", "近づ", "ちかづ", "そばに", "寄って", "よって") && !Has(c, "向いて", "むいて", "見て"))
             { steps.Add(Step(MotionAction.approach_user)); said = "そばに来る"; return steps; }
             if (Has(c, "離れ", "はなれ", "下がって", "さがって", "あっち行", "あっちへ行"))
             { steps.Add(Step(MotionAction.move, "", MotionDirection.away_from_user, Amount(c, "メートル", "m", "ｍ") is float m && m > 0 ? m : 1)); said = "離れる"; return steps; }
-            if (Has(c, "進ん", "すすん", "進め", "歩いて", "あるいて", "歩こう", "走って", "はしって", "移動", "動いて", "うごいて", "前に出", "まえにで", "前へ", "下がって", "バック") && !Has(c, "手", "腕", "足", "脚"))
+            if (Has(c, "進ん", "すすん", "進め", "歩いて", "あるいて", "歩こう", "走って", "はしって", "移動", "動いて", "うごいて", "前に出", "まえにで", "前へ", "下がって", "バック") && !Has(c, "手", "腕", "足", "脚")
+                // 「右に行って」「前に行こう」: a bare direction with a verb of going is a step that way.
+                || Has(c, "行って", "いって", "行こう", "いこう") && !Has(c, "手", "腕", "足", "脚") && Direction(c, out _, context) != MotionDirection.none)
             {
                 var dir = Direction(c, out string toward, context); if (dir == MotionDirection.none) dir = MotionDirection.forward;
                 float meters = Amount(c, "メートル", "m", "ｍ"); if (meters <= 0) meters = Amount(c, "歩", "ほ") * .4f; if (meters <= 0) meters = 1;
