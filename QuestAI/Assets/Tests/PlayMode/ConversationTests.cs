@@ -96,6 +96,19 @@ namespace QuestAI.Tests
             old.muteWait.SetException(new InvalidOperationException("old request failed"));yield return null;
             Assert.True(capture.Recording);Assert.True(brain.Connected);Assert.That(brain.Phase,Is.EqualTo(ConversationPhase.Recording));
         }
+        [UnityTest] public IEnumerator RecordingStartsBeforeUnmuteAcknowledgementAndShortPressIsSent()
+        {
+            brain.Connect();live.muteWait=new TaskCompletionSource<bool>();
+            brain.BeginRecording();
+            Assert.True(capture.Recording,"the microphone should capture the first words while unmute is pending");
+            Assert.That(brain.Phase,Is.EqualTo(ConversationPhase.Recording));
+            brain.EndRecording();
+            Assert.That(brain.Phase,Is.EqualTo(ConversationPhase.Thinking));
+            Assert.That(live.calls,Is.EqualTo(new[]{"connect","unmute"}),"audio must wait until unmute is acknowledged");
+            live.muteWait.SetResult(true);yield return null;
+            Assert.False(capture.Recording);
+            Assert.That(live.calls.Take(4),Is.EqualTo(new[]{"connect","unmute","audio","mute"}));
+        }
         [UnityTest] public IEnumerator MuteFailureDisconnectsAndAllowsRetry()
         {
             brain.Connect();live.muteWait=new TaskCompletionSource<bool>();live.muteWait.SetException(new InvalidOperationException("mute failed"));brain.BeginRecording();

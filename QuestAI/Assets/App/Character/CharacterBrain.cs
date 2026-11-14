@@ -30,7 +30,8 @@ namespace QuestAI
         IAudioCapture capture;PcmStreamPlayer playback;ILiveProvider live;
         readonly TurnGate turns=new TurnGate();
         float lastInteraction,lastBehavior,lastSample,lastInputDelta,lastOutputDelta,oldDistance,nextAudio;
-        bool oldLooking,behaviorBusy,initialized,sending,connecting,inputTransition,pttHeld,responseAllowed,inputReceived;
+        bool oldLooking,behaviorBusy,initialized,sending,connecting,inputTransition,finishingRecording,pttHeld,responseAllowed,inputReceived;
+        Task unmuteInFlight;
         long inputStartMs=-1,inputEndMs=-1,outputStartMs=-1,outputEndMs=-1;
         public const int MaxTypedLength=200;
         string sessionId,inputText="",outputText="",pendingText,lastSawText;float lastSawTime=-100,lastSawTell=-100,lastSawReact=-100;bool tracking;Vector3 oldHead;float nextWander,lookUntil,poseUntil,lastWalkCheck,lastGestureReact=-10;
@@ -74,22 +75,24 @@ namespace QuestAI
             inputTransition=true;int generation=turns.Generation;
             try
             {
-                await live.MuteAsync(false,turns.Token);
-                if(!turns.IsCurrent(generation))return;
-                if(!pttHeld){await live.MuteAsync(true,turns.Token);return;}
-                if(capture.Begin(out string error)){responseAllowed=true;inputReceived=false;lastInteraction=Time.time;SetPhase(ConversationPhase.Recording,"聞いています… 離すとマイクを停止");}
-                else{await live.MuteAsync(true,turns.Token);StatusChanged?.Invoke(error);}
+                // Start capturing before the network round trip. PumpAudio waits for the
+                // unmute acknowledgement, so speech at the start of a short press is kept.
+                if(!capture.Begin(out string error)){StatusChanged?.Invoke(error);return;}
+                responseAllowed=true;inputReceived=false;lastInteraction=Time.time;
+                SetPhase(ConversationPhase.Recording,"聞いています… 離すとマイクを停止");
+                unmuteInFlight=live.MuteAsync(false,turns.Token);
+                await unmuteInFlight;
             }
             catch(Exception e){if(turns.IsCurrent(generation)){Disconnect();SetPhase(ConversationPhase.Idle,SafeError(e));}}
-            finally{if(turns.IsCurrent(generation))inputTransition=false;}
+            finally{if(turns.IsCurrent(generation)&&!finishingRecording)inputTransition=false;}
         }
         public async void EndRecording()
         {
             pttHeld=false;if(!capture.Recording)return;int generation=turns.Generation;var token=turns.Token;
-            inputTransition=true;SetPhase(ConversationPhase.Thinking,"返答を待っています…");
-            try{while(sending){token.ThrowIfCancellationRequested();await Task.Yield();}var tail=capture.DrainPcm();capture.Stop();if(Connected){if(tail.Length>0)await live.AudioAsync(tail,token);await live.MuteAsync(true,token);}lastInteraction=Time.time;}
+            finishingRecording=inputTransition=true;SetPhase(ConversationPhase.Thinking,"返答を待っています…");
+            try{if(unmuteInFlight!=null)await unmuteInFlight;while(sending){token.ThrowIfCancellationRequested();await Task.Yield();}var tail=capture.DrainPcm();capture.Stop();if(Connected){if(tail.Length>0)await live.AudioAsync(tail,token);await live.MuteAsync(true,token);}lastInteraction=Time.time;}
             catch(Exception e){if(turns.IsCurrent(generation)){Disconnect();SetPhase(ConversationPhase.Idle,SafeError(e));}}
-            finally{if(turns.IsCurrent(generation))inputTransition=false;}
+            finally{if(turns.IsCurrent(generation)){unmuteInFlight=null;finishingRecording=inputTransition=false;}}
         }
         // Typed input for when the user cannot speak; it connects first when needed. Returns false when it cannot be sent now.
         public bool SendText(string text)
@@ -518,7 +521,7 @@ namespace QuestAI
         }
         public async void Disconnect()
         {
-            capture.Stop();pttHeld=false;pendingText=null;FlushTranscripts();turns.Cancel();connecting=sending=behaviorBusy=inputTransition=responseAllowed=false;var connection=live;live=null;playback.Clear();SetPhase(ConversationPhase.Idle,"未接続 · 接続ボタンで再開できます");if(connection!=null)await connection.CloseAsync();
+            capture.Stop();pttHeld=false;pendingText=null;FlushTranscripts();turns.Cancel();unmuteInFlight=null;finishingRecording=false;connecting=sending=behaviorBusy=inputTransition=responseAllowed=false;var connection=live;live=null;playback.Clear();SetPhase(ConversationPhase.Idle,"未接続 · 接続ボタンで再開できます");if(connection!=null)await connection.CloseAsync();
         }
         public void Suspend(){if(!initialized)return;if(performer)performer.Stop();if(locomotion)locomotion.Stop();lookUntil=0;EndPose();Disconnect();SetPhase(ConversationPhase.Paused,"一時停止中 · マイクとLive接続を停止しました");}
         public void Resume(){if(initialized&&Phase==ConversationPhase.Paused)SetPhase(ConversationPhase.Idle,"接続ボタンで会話を再開できます");}
